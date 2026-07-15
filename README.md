@@ -30,6 +30,33 @@ The checks run against an explicit repository working directory. A policy file i
 
 The package has no runtime Python dependencies outside the standard library.
 
+## GitHub Action
+
+This repository can be used directly as a cross-platform composite action. Pin consumers to a release tag or, preferably, an immutable commit SHA:
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - id: quality
+    uses: KaramTNC/dotnet-quality-enforcer@v1
+    with:
+      command: code-size
+      arguments: --scope full
+      parser: auto
+```
+
+The action installs the package, runs the selected gate, and exposes `result`, `status`, `returncode`, `violations`, and `warnings` outputs. Set `install-roslyn: true` to install the .NET 8 SDK and build the bundled Roslyn helper before running a Roslyn-enabled gate. The `coverage-report` command still requires ReportGenerator to be available on the runner.
+
+The action's `result` output uses the same `schema_version: 1` JSON envelope as the command-line interface:
+
+```yaml
+- name: Fail on quality violations
+  if: steps.quality.outputs.status == 'failed'
+  run: echo '${{ steps.quality.outputs.violations }}'
+```
+
+The release-download badge above counts downloads of GitHub Release assets. It does not count workflow executions that reference this repository with `uses:`. GitHub Actions usage is tracked separately through GitHub's Actions usage metrics; no telemetry is sent by this action.
+
 ## Installation
 
 The current public distributions are attached to [GitHub Releases](https://github.com/KaramTNC/dotnet-quality-enforcer/releases). Download the wheel that matches the release you want, or install from a source checkout:
@@ -88,7 +115,11 @@ For automation, request a structured result envelope:
 dotnet-quality --output json code-size --scope full
 ```
 
-Most commands use `.quality/quality_policy.json` by default when it exists. Baseline files contain known violations that are intentionally accepted by the consuming repository; keep those files in the consuming repository rather than in this package.
+The JSON envelope has `schema_version: 1`, a `status`, `returncode`, `violations`, `warnings`, repository metadata, and the original `stdout`/`stderr` for compatibility.
+
+Most commands use `.quality/quality_policy.json` by default when it exists. The top-level command validates known policy keys before starting a gate and reports the exact invalid key. Baseline files contain known violations that are intentionally accepted by the consuming repository; keep those files in the consuming repository rather than in this package.
+
+The top-level options also support `--timeout SECONDS` for external tools and `--parser auto|python|roslyn`. The default `auto` mode uses Roslyn only when configured; `python` forces the dependency-free parser, and `roslyn` fails if the helper is unavailable or cannot analyze a file.
 
 ## Optional Roslyn parsing
 
@@ -101,6 +132,8 @@ export DOTNET_QUALITY_ROSLYN_COMMAND="dotnet tools/roslyn-analyzer/bin/Release/n
 
 When configured, source-type and unit-test convention analysis uses Roslyn. If the helper is unavailable or returns an error, the built-in parser is used instead.
 
+Versioned releases also include a framework-dependent Roslyn helper archive. It still requires the .NET 8 runtime, but avoids rebuilding the helper locally. Release assets include SHA-256 checksums, an SBOM, build metadata, and GitHub artifact provenance.
+
 ## Download tracking
 
 The badge at the top of this page tracks downloads of the wheel and source-distribution assets attached to this repository's GitHub Releases. It does not include Git clones, source-archive downloads, or installations from other channels. See the [release download statistics](https://github.com/KaramTNC/dotnet-quality-enforcer/releases) for the individual assets and releases.
@@ -111,8 +144,9 @@ Run the local checks with:
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py"
-ruff check src tests
-mypy src
+ruff check src tests action_runner.py
+mypy src action_runner.py
+pip-audit .
 ```
 
 Pull requests targeting `staging` or `main` run the test suite on Python 3.10 through 3.13, plus static analysis and a Roslyn helper smoke test. Successful pushes to `main` build distributions and create a GitHub Release named `main-<commit-sha>`. Version tags such as `v0.2.0` create versioned releases. The release workflow requires GitHub Actions permission to write repository contents.

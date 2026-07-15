@@ -25,9 +25,9 @@ class CliTests(unittest.TestCase):
 
     def test_json_output_runs_from_explicit_repository_root_without_mutating_process_state(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
+            root = Path(td) / "repo with spaces"
             source_root = root / "src"
-            source_root.mkdir()
+            source_root.mkdir(parents=True)
             (source_root / "Example.cs").write_text(
                 "namespace Example;\npublic class Example { }\n",
                 encoding="utf-8",
@@ -49,6 +49,8 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(payload["command"], "code-size")
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["status"], "passed")
         self.assertEqual(payload["returncode"], 0)
         self.assertIn("Code size gate passed", payload["stdout"])
         self.assertEqual(payload["stderr"], "")
@@ -70,7 +72,41 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(result, 1)
         self.assertEqual(payload["returncode"], 1)
+        self.assertEqual(payload["status"], "failed")
         self.assertIn("--base is required", payload["stderr"])
+
+    def test_json_output_reports_invalid_policy_before_running_a_command(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / ".quality").mkdir()
+            (root / ".quality" / "quality_policy.json").write_text(
+                '{"code_size": {"method_max_lines": "not-a-number"}}',
+                encoding="utf-8",
+            )
+
+            result, payload = self._run_cli(
+                ["--repo-root", str(root), "--output", "json", "code-size", "--scope", "full"]
+            )
+
+        self.assertEqual(result, 2)
+        self.assertEqual(payload["returncode"], 2)
+        self.assertIn("code_size.method_max_lines", payload["stderr"])
+
+    def test_parser_mode_is_forwarded_to_the_child_command(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "src").mkdir()
+            (root / "src" / "Example.cs").write_text(
+                "namespace Example;\npublic class Example { }\n",
+                encoding="utf-8",
+            )
+
+            result, payload = self._run_cli(
+                ["--repo-root", str(root), "--parser", "python", "--output", "json", "code-size"]
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(payload["parser"], "python")
 
 
 if __name__ == "__main__":

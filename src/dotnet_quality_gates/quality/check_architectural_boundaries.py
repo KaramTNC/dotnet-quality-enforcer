@@ -6,6 +6,7 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from dotnet_quality_gates.context import current_context
 from dotnet_quality_gates.quality.common import (  # noqa: E402
     is_repo_excluded,
     load_policy_object,
@@ -18,7 +19,7 @@ from dotnet_quality_gates.unit_test_conventions import (  # noqa: E402
     mask_comments_and_strings,
 )
 
-DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
+DEFAULT_POLICY_PATH = current_context().policy_path
 DEFAULT_INCLUDE_ROOTS = ["src"]
 DEFAULT_EXCLUDE_GLOBS = [
     "**/*.Designer.cs",

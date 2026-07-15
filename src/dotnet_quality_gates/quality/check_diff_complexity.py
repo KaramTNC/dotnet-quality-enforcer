@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import bisect
-import os
 import re
 import subprocess
 import sys
@@ -10,6 +9,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotnet_quality_gates.context import current_context
 from dotnet_quality_gates.coverage.check_diff_coverage import (  # noqa: E402
     parse_changed_lines,
     parse_coverage,
@@ -17,10 +17,11 @@ from dotnet_quality_gates.coverage.check_diff_coverage import (  # noqa: E402
     run_git_diff,
 )
 from dotnet_quality_gates.quality.common import load_policy_object, policy_section  # noqa: E402
+from dotnet_quality_gates.subprocess_utils import run_command
 from dotnet_quality_gates.unit_test_conventions import find_matching_brace, mask_comments_and_strings  # noqa: E402
 
-REPO_ROOT = Path(os.environ.get("DOTNET_QUALITY_REPO_ROOT", Path.cwd())).resolve()
-DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
+REPO_ROOT = current_context().repo_root
+DEFAULT_POLICY_PATH = current_context().policy_path
 
 DEFAULT_CYCLOMATIC_MAX = 10
 DEFAULT_COGNITIVE_MAX = 10
@@ -358,11 +359,8 @@ def changed_methods(methods: list[MethodMetric], changed_lines: set[int]) -> lis
 
 
 def read_git_file(base: str, path: str) -> str | None:
-    result = subprocess.run(
+    result = run_command(
         ["git", "show", f"{base}:{path}"],
-        check=False,
-        text=True,
-        capture_output=True,
         cwd=REPO_ROOT,
     )
     if result.returncode != 0:
@@ -660,7 +658,7 @@ def main() -> int:
 
     try:
         changed = parse_changed_lines(run_git_diff(args.base))
-    except (OSError, subprocess.CalledProcessError) as ex:
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as ex:
         detail = getattr(ex, "stderr", None) or str(ex)
         print(f"Unable to compute git diff against '{args.base}': {detail.strip()}", file=sys.stderr)
         return 1

@@ -33,7 +33,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install package
-        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+        run: python -m pip install --upgrade pip && python -m pip install -c constraints-ci.txt -e ".[dev]"
 
       - name: Run unit tests
         run: python -m unittest discover -s tests -p "test_*.py"
@@ -57,13 +57,60 @@ jobs:
           python-version: "3.13"
 
       - name: Install development dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+        run: python -m pip install --upgrade pip && python -m pip install -c constraints-ci.txt -e ".[dev]"
 
       - name: Run Ruff
-        run: ruff check src tests
+        run: ruff check src tests action_runner.py
 
       - name: Run mypy
-        run: mypy src
+        run: mypy src action_runner.py
+
+  windows:
+    name: Windows compatibility
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.x"
+
+      - name: Install package
+        run: python -m pip install --upgrade pip; python -m pip install -c constraints-ci.txt -e ".[dev]"
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -p "test_*.py"
+
+      - name: Build Roslyn helper
+        run: dotnet build tools/roslyn-analyzer/DotnetQualityRoslyn.csproj --configuration Release --nologo
+
+      - name: Verify Windows CLI and JSON contract
+        run: dotnet-quality --output json code-size --scope full
+
+  security:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install package and audit tooling
+        run: python -m pip install --upgrade pip && python -m pip install -c constraints-ci.txt -e ".[security]"
+
+      - name: Audit installed dependencies
+        run: pip-audit .
 
   roslyn-helper:
     name: Build Roslyn helper
@@ -85,3 +132,9 @@ jobs:
           dotnet tools/roslyn-analyzer/bin/Release/net8.0/DotnetQualityRoslyn.dll \
             --file tools/roslyn-analyzer/Program.cs > roslyn-output.json
           python -c "import json; payload=json.load(open('roslyn-output.json')); assert 'types' in payload and 'diagnostics' in payload"
+
+      - name: Smoke test Roslyn batch protocol
+        run: |
+          dotnet tools/roslyn-analyzer/bin/Release/net8.0/DotnetQualityRoslyn.dll \
+            --files tools/roslyn-analyzer/Program.cs tools/roslyn-analyzer/Program.cs > roslyn-batch-output.json
+          python -c "import json; payload=json.load(open('roslyn-batch-output.json')); assert len(payload['files']) == 2"

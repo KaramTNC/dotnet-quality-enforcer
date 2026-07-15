@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import argparse
 import subprocess
+import sys
 from pathlib import Path
+
+from dotnet_quality_gates.subprocess_utils import run_command
 
 
 def load_filefilters(path: Path) -> str:
@@ -45,7 +48,14 @@ def main() -> int:
     if filefilters:
         command.append(f"-filefilters:{filefilters}")
 
-    completed = subprocess.run(command, check=False)
+    try:
+        completed = run_command(command, capture_output=False)
+    except FileNotFoundError:
+        print("ReportGenerator executable was not found on PATH.", file=sys.stderr)
+        return 127
+    except subprocess.TimeoutExpired:
+        print("ReportGenerator exceeded the configured command timeout.", file=sys.stderr)
+        return 124
     return completed.returncode
 
 

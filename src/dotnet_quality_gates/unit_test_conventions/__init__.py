@@ -5,6 +5,7 @@ from .constants import (
     DEFAULT_UNIT_TEST_ROOT,
     REPO_ROOT,
 )
+from .discovery import iter_csharp_files
 from .models import SourceClassInfo, TestClassInfo, TestMethodInfo
 from .parsing import (
     compute_brace_depths,
@@ -22,7 +23,14 @@ from .parsing import (
     parse_test_method_name,
 )
 from .policy import load_default_source_include_roots
-from .roslyn import RoslynDiagnostic, RoslynFileAnalysis, analyze_csharp_file
+from .roslyn import (
+    RoslynDiagnostic,
+    RoslynError,
+    RoslynFileAnalysis,
+    analyze_csharp_file,
+    analyze_csharp_files,
+    parser_mode,
+)
 from .validation import (
     build_include_to_test_root_map,
     combine_partial_source_classes,
@@ -45,6 +53,7 @@ __all__ = [
     "find_matching_brace",
     "is_excluded_source_file",
     "iter_cs_files",
+    "iter_csharp_files",
     "load_default_source_include_roots",
     "mask_comments_and_strings",
     "normalize_region_name",
@@ -57,7 +66,10 @@ __all__ = [
     "parse_test_method_name",
     "resolve_expected_test_directory",
     "RoslynDiagnostic",
+    "RoslynError",
     "RoslynFileAnalysis",
     "analyze_csharp_file",
+    "analyze_csharp_files",
+    "parser_mode",
     "validate_conventions",
 ]

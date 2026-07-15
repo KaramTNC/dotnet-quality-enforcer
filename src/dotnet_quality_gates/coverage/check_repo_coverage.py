@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import sys
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
 
+from dotnet_quality_gates.context import current_context
 from dotnet_quality_gates.quality.common import load_policy_object, policy_section
 
-REPO_ROOT = Path(os.environ.get("DOTNET_QUALITY_REPO_ROOT", Path.cwd())).resolve()
-DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
+REPO_ROOT = current_context().repo_root
+DEFAULT_POLICY_PATH = current_context().policy_path
 
 DEFAULT_EXPECTED_PACKAGES: set[str] = set()
 
