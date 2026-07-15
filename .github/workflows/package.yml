@@ -3,19 +3,32 @@ name: Package Release
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   build:
     name: Build distribution
     runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
+
+    permissions:
+      contents: read
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -23,7 +36,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install build tooling
-        run: python -m pip install build
+        run: python -m pip install --upgrade pip build
 
       - name: Build wheel and source distribution
         run: python -m build
@@ -33,9 +46,56 @@ jobs:
         with:
           name: dotnet-quality-enforcer-distributions
           path: dist/
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Create GitHub Release
-        if: github.ref_type == 'tag'
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main') ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dotnet-quality-enforcer-distributions
+          path: dist
+
+      - name: Create release for Main commit
+        if: github.event_name == 'workflow_run'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+          RELEASE_TAG: main-${{ github.event.workflow_run.head_sha }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/* --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/* \
+              --target "$RELEASE_SHA" \
+              --title "Main build ${RELEASE_SHA:0:7}" \
+              --generate-notes
+          fi
+
+      - name: Create release for version tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --target "$GITHUB_SHA" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi

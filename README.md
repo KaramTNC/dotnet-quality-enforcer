@@ -35,3 +35,11 @@ python -m unittest discover -s tests -p "test_*.py"
 ```
 
 The package targets Python 3.10 and newer and has no runtime dependencies outside the standard library.
+
+## CI/CD
+
+- Pull requests targeting `staging` or `main` run the test suite on Python 3.10 through 3.13.
+- Successful pushes to `main` build the package and create a GitHub Release named `main-<commit-sha>` with the distributions attached.
+- Pushing a version tag such as `v0.2.0` creates a versioned GitHub Release using the same build process.
+
+Main releases are created only after the CI workflow succeeds. The repository's Actions settings must allow the workflow `GITHUB_TOKEN` to write repository contents so it can create releases.
