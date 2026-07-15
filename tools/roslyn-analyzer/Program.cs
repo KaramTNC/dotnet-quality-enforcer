@@ -3,41 +3,62 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Text.Json;
 
-if (args.Length != 2 || args[0] != "--file")
+if (args.Length < 2
+    || (args[0] != "--file" && args[0] != "--files")
+    || (args[0] == "--file" && args.Length != 2))
 {
-    Console.Error.WriteLine("Usage: dotnet-quality-roslyn --file <path>");
+    Console.Error.WriteLine("Usage: dotnet-quality-roslyn --file <path> | --files <path> [<path> ...]");
     return 2;
 }
 
-var filePath = Path.GetFullPath(args[1]);
-if (!File.Exists(filePath))
+var filePaths = args[1..].Select(Path.GetFullPath).ToArray();
+foreach (var filePath in filePaths)
 {
-    Console.Error.WriteLine($"C# file not found: {filePath}");
-    return 1;
+    if (!File.Exists(filePath))
+    {
+        Console.Error.WriteLine($"C# file not found: {filePath}");
+        return 1;
+    }
 }
 
-var source = await File.ReadAllTextAsync(filePath);
-var tree = CSharpSyntaxTree.ParseText(source, path: filePath);
-var root = await tree.GetRootAsync();
-var types = root.DescendantNodes()
-    .OfType<BaseTypeDeclarationSyntax>()
-    .Where(IsTopLevelType)
-    .Select(type => CreateTypeInfo(type, tree))
-    .ToArray();
-
-var diagnostics = tree.GetDiagnostics()
-    .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
-    .Select(diagnostic => new DiagnosticInfo(
-        diagnostic.Id,
-        diagnostic.GetMessage(),
-        tree.GetLineSpan(diagnostic.Location.SourceSpan).StartLinePosition.Line + 1))
-    .ToArray();
-
-var result = new FileAnalysis(types, diagnostics);
-Console.WriteLine(JsonSerializer.Serialize(result, new JsonSerializerOptions
+var analyses = new List<(string Path, FileAnalysis Analysis)>();
+foreach (var filePath in filePaths)
 {
-    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-}));
+    var source = await File.ReadAllTextAsync(filePath);
+    var tree = CSharpSyntaxTree.ParseText(source, path: filePath);
+    var root = await tree.GetRootAsync();
+    var types = root.DescendantNodes()
+        .OfType<BaseTypeDeclarationSyntax>()
+        .Where(IsTopLevelType)
+        .Select(type => CreateTypeInfo(type, tree))
+        .ToArray();
+
+    var diagnostics = tree.GetDiagnostics()
+        .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+        .Select(diagnostic => new DiagnosticInfo(
+            diagnostic.Id,
+            diagnostic.GetMessage(),
+            tree.GetLineSpan(diagnostic.Location.SourceSpan).StartLinePosition.Line + 1))
+        .ToArray();
+
+    analyses.Add((filePath, new FileAnalysis(types, diagnostics)));
+}
+
+var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+if (args[0] == "--file")
+{
+    Console.WriteLine(JsonSerializer.Serialize(analyses[0].Analysis, options));
+}
+else
+{
+    Console.WriteLine(JsonSerializer.Serialize(
+        new BatchAnalysis(analyses.Select(item => new BatchFileAnalysis(
+            item.Path,
+            item.Analysis.Types,
+            item.Analysis.Diagnostics)).ToArray()),
+        options));
+}
+
 return 0;
 
 static bool IsTopLevelType(BaseTypeDeclarationSyntax type)
@@ -60,7 +81,6 @@ static TypeInfo CreateTypeInfo(BaseTypeDeclarationSyntax type, SyntaxTree tree)
     };
 
     var line = tree.GetLineSpan(type.Span).StartLinePosition.Line + 1;
-    var methods = new HashSet<string>(StringComparer.Ordinal);
     var methodInfos = new List<MethodInfo>();
     var exposedMethods = new HashSet<string>(StringComparer.Ordinal);
     var targetableMembers = new HashSet<string>(StringComparer.Ordinal);
@@ -73,7 +93,6 @@ static TypeInfo CreateTypeInfo(BaseTypeDeclarationSyntax type, SyntaxTree tree)
         switch (member)
         {
             case MethodDeclarationSyntax method:
-                methods.Add(method.Identifier.ValueText);
                 targetableMembers.Add(method.Identifier.ValueText);
                 methodInfos.Add(new MethodInfo(
                     method.Identifier.ValueText,
@@ -147,6 +166,8 @@ static string RemoveGenericArguments(string value)
     return genericStart >= 0 ? value[..genericStart] : value;
 }
 
+record BatchAnalysis(BatchFileAnalysis[] Files);
+record BatchFileAnalysis(string Path, TypeInfo[] Types, DiagnosticInfo[] Diagnostics);
 record FileAnalysis(TypeInfo[] Types, DiagnosticInfo[] Diagnostics);
 record DiagnosticInfo(string Id, string Message, int Line);
 record TypeInfo(

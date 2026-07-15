@@ -23,7 +23,14 @@ from .parsing import (
     parse_test_method_name,
 )
 from .policy import load_default_source_include_roots
-from .roslyn import RoslynDiagnostic, RoslynError, RoslynFileAnalysis, analyze_csharp_file, parser_mode
+from .roslyn import (
+    RoslynDiagnostic,
+    RoslynError,
+    RoslynFileAnalysis,
+    analyze_csharp_file,
+    analyze_csharp_files,
+    parser_mode,
+)
 from .validation import (
     build_include_to_test_root_map,
     combine_partial_source_classes,
@@ -62,6 +69,7 @@ __all__ = [
     "RoslynError",
     "RoslynFileAnalysis",
     "analyze_csharp_file",
+    "analyze_csharp_files",
     "parser_mode",
     "validate_conventions",
 ]

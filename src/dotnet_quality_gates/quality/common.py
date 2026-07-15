@@ -7,7 +7,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
 
-from dotnet_quality_gates.unit_test_conventions import REPO_ROOT
+from dotnet_quality_gates.context import current_context
 
 _DIFF_HUNK_PATTERN = re.compile(
     r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<length>\d+))? @@"
@@ -90,7 +90,7 @@ def load_quality_section_config(
 
 
 def is_repo_excluded(path: Path, exclude_globs: list[str], repo_root: Path | None = None) -> bool:
-    repo_root = repo_root or REPO_ROOT
+    repo_root = repo_root or current_context().repo_root
     try:
         relative_path = path.resolve().relative_to(repo_root.resolve())
     except ValueError:

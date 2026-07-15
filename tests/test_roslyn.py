@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -44,6 +46,32 @@ class RoslynBridgeTests(unittest.TestCase):
         with patch.dict(os.environ, {"DOTNET_QUALITY_PARSER": "roslyn"}, clear=True):
             with self.assertRaises(roslyn.RoslynError):
                 roslyn.analyze_csharp_file(Path("Example.cs"))
+
+    def test_multiple_files_use_the_batch_protocol(self) -> None:
+        files = [Path("src/One.cs").resolve(), Path("src/Two.cs").resolve()]
+        payload = {
+            "files": [
+                {"path": str(path), "types": [], "diagnostics": []}
+                for path in files
+            ]
+        }
+        completed = subprocess.CompletedProcess(
+            args=["roslyn"], returncode=0, stdout=json.dumps(payload), stderr=""
+        )
+        with (
+            patch.dict(
+                os.environ,
+                {"DOTNET_QUALITY_PARSER": "roslyn", "DOTNET_QUALITY_ROSLYN_COMMAND": "roslyn"},
+                clear=True,
+            ),
+            patch.object(roslyn.subprocess, "run", return_value=completed) as run,
+        ):
+            analyses = roslyn.analyze_csharp_files(files)
+
+        self.assertEqual(set(analyses), set(files))
+        command = run.call_args.args[0]
+        self.assertIn("--files", command)
+        self.assertIn(str(files[0]), command)
 
 
 if __name__ == "__main__":

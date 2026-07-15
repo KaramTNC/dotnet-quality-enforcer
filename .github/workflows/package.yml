@@ -23,6 +23,8 @@ jobs:
 
     permissions:
       contents: read
+      id-token: write
+      attestations: write
 
     steps:
       - name: Check out repository
@@ -42,7 +44,7 @@ jobs:
           dotnet-version: "8.x"
 
       - name: Install build tooling
-        run: python -m pip install --upgrade pip build twine
+        run: python -m pip install --upgrade pip build twine pip-audit
 
       - name: Build wheel and source distribution
         run: python -m build
@@ -64,6 +66,37 @@ jobs:
       - name: Add Roslyn helper to release distributions
         shell: bash
         run: cp release-assets/dotnet-quality-roslyn-*.tar.gz dist/
+
+      - name: Generate release SBOM
+        run: pip-audit . --format cyclonedx-json --output dist/sbom.json
+
+      - name: Generate build metadata and checksums
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import pathlib
+
+          metadata = {
+              "schema_version": 1,
+              "repository": os.environ.get("GITHUB_REPOSITORY"),
+              "commit": os.environ.get("GITHUB_SHA"),
+              "ref": os.environ.get("GITHUB_REF"),
+              "workflow": os.environ.get("GITHUB_WORKFLOW"),
+              "run_id": os.environ.get("GITHUB_RUN_ID"),
+              "artifacts": sorted(path.name for path in pathlib.Path("dist").iterdir() if path.is_file()),
+          }
+          pathlib.Path("dist/BUILD-METADATA.json").write_text(
+              json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+          sha256sum dist/* > dist/SHA256SUMS
+
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
 
       - name: Verify package version metadata
         shell: bash

@@ -88,6 +88,8 @@ For automation, request a structured result envelope:
 dotnet-quality --output json code-size --scope full
 ```
 
+The JSON envelope has `schema_version: 1`, a `status`, `returncode`, `violations`, `warnings`, repository metadata, and the original `stdout`/`stderr` for compatibility.
+
 Most commands use `.quality/quality_policy.json` by default when it exists. The top-level command validates known policy keys before starting a gate and reports the exact invalid key. Baseline files contain known violations that are intentionally accepted by the consuming repository; keep those files in the consuming repository rather than in this package.
 
 The top-level options also support `--timeout SECONDS` for external tools and `--parser auto|python|roslyn`. The default `auto` mode uses Roslyn only when configured; `python` forces the dependency-free parser, and `roslyn` fails if the helper is unavailable or cannot analyze a file.
@@ -103,7 +105,7 @@ export DOTNET_QUALITY_ROSLYN_COMMAND="dotnet tools/roslyn-analyzer/bin/Release/n
 
 When configured, source-type and unit-test convention analysis uses Roslyn. If the helper is unavailable or returns an error, the built-in parser is used instead.
 
-Versioned releases also include a framework-dependent Roslyn helper archive. It still requires the .NET 8 runtime, but avoids rebuilding the helper locally.
+Versioned releases also include a framework-dependent Roslyn helper archive. It still requires the .NET 8 runtime, but avoids rebuilding the helper locally. Release assets include SHA-256 checksums, an SBOM, build metadata, and GitHub artifact provenance.
 
 ## Download tracking
 
@@ -117,7 +119,7 @@ Run the local checks with:
 python -m unittest discover -s tests -p "test_*.py"
 ruff check src tests
 mypy src
-pip-audit --local
+pip-audit .
 ```
 
 Pull requests targeting `staging` or `main` run the test suite on Python 3.10 through 3.13, plus static analysis and a Roslyn helper smoke test. Successful pushes to `main` build distributions and create a GitHub Release named `main-<commit-sha>`. Version tags such as `v0.2.0` create versioned releases. The release workflow requires GitHub Actions permission to write repository contents.

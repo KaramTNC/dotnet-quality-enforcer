@@ -49,6 +49,8 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(payload["command"], "code-size")
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["status"], "passed")
         self.assertEqual(payload["returncode"], 0)
         self.assertIn("Code size gate passed", payload["stdout"])
         self.assertEqual(payload["stderr"], "")
@@ -70,6 +72,7 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(result, 1)
         self.assertEqual(payload["returncode"], 1)
+        self.assertEqual(payload["status"], "failed")
         self.assertIn("--base is required", payload["stderr"])
 
     def test_json_output_reports_invalid_policy_before_running_a_command(self) -> None:

@@ -76,6 +76,28 @@ def validate_policy_document(document: dict[str, object], path: Path | None = No
                     f"policy key '{section_name}.{field_name}'{location} has an invalid value"
                 )
 
+    code_size = document.get("code_size")
+    if isinstance(code_size, dict):
+        for warning_key, failure_key in (
+            ("method_warn_lines", "method_max_lines"),
+            ("type_warn_lines", "type_max_lines"),
+            ("file_warn_lines", "file_max_lines"),
+        ):
+            warning = code_size.get(warning_key)
+            failure = code_size.get(failure_key)
+            if isinstance(warning, int) and isinstance(failure, int) and warning > failure:
+                raise PolicyValidationError(
+                    f"policy key '{warning_key}'{location} must not exceed '{failure_key}'"
+                )
+
+    boundaries = document.get("architectural_boundaries")
+    if isinstance(boundaries, dict) and isinstance(boundaries.get("layer_rules"), dict):
+        for layer, dependencies in boundaries["layer_rules"].items():
+            if isinstance(dependencies, list) and layer in dependencies:
+                raise PolicyValidationError(
+                    f"policy key 'architectural_boundaries.layer_rules.{layer}'{location} cannot depend on itself"
+                )
+
 
 def _string_list(value: object) -> bool:
     return isinstance(value, list) and bool(value) and all(isinstance(item, str) and item.strip() for item in value)

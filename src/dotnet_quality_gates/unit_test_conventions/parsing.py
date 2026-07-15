@@ -3,11 +3,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from dotnet_quality_gates.context import current_context
+
 from .constants import (
     CLASS_DECLARATION_PATTERN,
     EXPOSED_METHOD_DECLARATION_PATTERN,
     METHOD_DECLARATION_PATTERN,
-    REPO_ROOT,
     SOURCE_TYPE_DECLARATION_PATTERN,
     TARGETABLE_EVENT_DECLARATION_PATTERN,
     TARGETABLE_PROPERTY_DECLARATION_PATTERN,
@@ -15,16 +16,17 @@ from .constants import (
 )
 from .discovery import iter_csharp_files
 from .models import SourceClassInfo, TestClassInfo, TestMethodInfo
-from .roslyn import RoslynError, analyze_csharp_file
+from .roslyn import RoslynError, analyze_csharp_files
 
 
 def iter_cs_files(root: Path) -> list[Path]:
     return iter_csharp_files(root)
 
 
-def repo_relative(path: Path) -> str:
+def repo_relative(path: Path, repo_root: Path | None = None) -> str:
+    repo_root = repo_root or current_context().repo_root
     try:
-        return path.relative_to(REPO_ROOT).as_posix()
+        return path.relative_to(repo_root).as_posix()
     except ValueError:
         return path.as_posix()
 
@@ -398,16 +400,14 @@ def parse_base_types(type_header: str) -> list[str]:
 def parse_source_classes(src_root: Path) -> tuple[list[SourceClassInfo], list[str]]:
     source_classes: list[SourceClassInfo] = []
     errors: list[str] = []
+    file_paths = [file_path for file_path in iter_cs_files(src_root) if not is_excluded_source_file(file_path)]
+    try:
+        roslyn_analyses = analyze_csharp_files(file_paths)
+    except RoslynError as ex:
+        return source_classes, [f"Roslyn parser error: {ex}"]
 
-    for file_path in iter_cs_files(src_root):
-        if is_excluded_source_file(file_path):
-            continue
-
-        try:
-            roslyn_analysis = analyze_csharp_file(file_path)
-        except RoslynError as ex:
-            errors.append(f"{repo_relative(file_path)}: Roslyn parser error: {ex}")
-            continue
+    for file_path in file_paths:
+        roslyn_analysis = roslyn_analyses.get(file_path.resolve())
         if roslyn_analysis is not None:
             source_classes.extend(roslyn_analysis.source_classes)
             errors.extend(
@@ -464,13 +464,14 @@ def parse_source_classes(src_root: Path) -> tuple[list[SourceClassInfo], list[st
 def parse_test_classes(unit_test_root: Path) -> tuple[list[TestClassInfo], list[str]]:
     test_classes: list[TestClassInfo] = []
     errors: list[str] = []
+    file_paths = iter_cs_files(unit_test_root)
+    try:
+        roslyn_analyses = analyze_csharp_files(file_paths)
+    except RoslynError as ex:
+        return test_classes, [f"Roslyn parser error: {ex}"]
 
-    for file_path in iter_cs_files(unit_test_root):
-        try:
-            roslyn_analysis = analyze_csharp_file(file_path)
-        except RoslynError as ex:
-            errors.append(f"{repo_relative(file_path)}: Roslyn parser error: {ex}")
-            continue
+    for file_path in file_paths:
+        roslyn_analysis = roslyn_analyses.get(file_path.resolve())
         if roslyn_analysis is not None:
             test_classes.extend(roslyn_analysis.test_classes)
             errors.extend(

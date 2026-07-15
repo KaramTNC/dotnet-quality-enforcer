@@ -52,9 +52,14 @@ def analyze_csharp_file(path: Path, mode: str | None = None) -> RoslynFileAnalys
     ``python`` always uses the fallback parser. ``roslyn`` is strict and raises
     ``RoslynError`` when the helper is missing or fails.
     """
+    return analyze_csharp_files([path], mode).get(path.resolve())
+
+
+def analyze_csharp_files(paths: list[Path], mode: str | None = None) -> dict[Path, RoslynFileAnalysis]:
+    """Analyze multiple files with one helper process per batch."""
     selected_mode = parser_mode(mode)
-    if selected_mode == "python":
-        return None
+    if selected_mode == "python" or not paths:
+        return {}
 
     command = _configured_command()
     if not command:
@@ -62,35 +67,52 @@ def analyze_csharp_file(path: Path, mode: str | None = None) -> RoslynFileAnalys
             raise RoslynError(
                 "Roslyn parser was requested but DOTNET_QUALITY_ROSLYN_COMMAND is not configured"
             )
-        return None
+        return {}
 
+    normalized_paths = [path.resolve() for path in paths]
+    analyses: dict[Path, RoslynFileAnalysis] = {}
     try:
-        completed = subprocess.run(
-            [*command, "--file", str(path)],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=current_context().command_timeout_seconds,
-        )
-        if completed.returncode != 0:
-            if selected_mode == "roslyn":
-                detail = completed.stderr.strip() or f"helper exited with code {completed.returncode}"
-                raise RoslynError(f"Roslyn helper failed for '{path}': {detail}")
-            return None
-        payload = json.loads(completed.stdout)
-        if not isinstance(payload, dict):
-            if selected_mode == "roslyn":
-                raise RoslynError("Roslyn helper returned a non-object JSON response")
-            return None
-        return _parse_analysis(path, payload)
+        for start in range(0, len(normalized_paths), 64):
+            batch = normalized_paths[start : start + 64]
+            mode_flag = "--file" if len(batch) == 1 else "--files"
+            completed = subprocess.run(
+                [*command, mode_flag, *[str(path) for path in batch]],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=current_context().command_timeout_seconds,
+            )
+            if completed.returncode != 0:
+                if selected_mode == "roslyn":
+                    detail = completed.stderr.strip() or f"helper exited with code {completed.returncode}"
+                    raise RoslynError(f"Roslyn helper failed: {detail}")
+                return {}
+
+            payload = json.loads(completed.stdout)
+            raw_files = [payload] if len(batch) == 1 else payload.get("files", [])
+            if not isinstance(raw_files, list):
+                raise TypeError("Roslyn batch response must contain a 'files' list")
+            for raw_file in raw_files:
+                if not isinstance(raw_file, dict):
+                    raise TypeError("Invalid Roslyn file response")
+                raw_path = str(raw_file.get("path", batch[0])) if len(batch) > 1 else str(batch[0])
+                path = Path(raw_path).resolve()
+                if path not in batch:
+                    raise ValueError(f"Roslyn response returned an unexpected path: {raw_path}")
+                analyses[path] = _parse_analysis(path, raw_file)
+
+            if len(analyses) < start + len(batch):
+                missing = sorted(set(batch) - set(analyses))
+                raise ValueError(f"Roslyn response omitted files: {', '.join(map(str, missing))}")
+        return analyses
     except subprocess.TimeoutExpired as ex:
         if selected_mode == "roslyn":
-            raise RoslynError(f"Roslyn helper timed out for '{path}'") from ex
-        return None
+            raise RoslynError("Roslyn helper timed out") from ex
+        return {}
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as ex:
         if selected_mode == "roslyn":
-            raise RoslynError(f"Roslyn helper returned invalid output for '{path}': {ex}") from ex
-        return None
+            raise RoslynError(f"Roslyn helper returned invalid output: {ex}") from ex
+        return {}
 
 
 def _parse_analysis(path: Path, payload: dict[str, object]) -> RoslynFileAnalysis:

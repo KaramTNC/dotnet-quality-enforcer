@@ -8,6 +8,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from dotnet_quality_gates.context import PARSER_MODES, ExecutionContext
 from dotnet_quality_gates.policy import PolicyValidationError, validate_policy_file
@@ -70,6 +71,7 @@ def _commands() -> dict[str, CommandSpec]:
 
 # Kept as a small compatibility surface for callers that used the old constant.
 COMMAND_NAMES = tuple(_commands())
+JSON_SCHEMA_VERSION = 1
 
 
 def main() -> int:
@@ -170,21 +172,16 @@ def main() -> int:
         return _emit_failure(args.output, args.command, repo_root, policy_path, args.parser, message, 124)
 
     if args.output == "json":
-        print(
-            json.dumps(
-                {
-                    "command": args.command,
-                    "repo_root": str(repo_root),
-                    "policy_path": str(policy_path),
-                    "parser": args.parser,
-                    "returncode": completed.returncode,
-                    "duration_ms": round((time.perf_counter() - started_at) * 1000, 3),
-                    "stdout": completed.stdout,
-                    "stderr": completed.stderr,
-                },
-                ensure_ascii=False,
-            )
-        )
+        print(json.dumps(_result_payload(
+            args.command,
+            repo_root,
+            policy_path,
+            args.parser,
+            completed.returncode,
+            round((time.perf_counter() - started_at) * 1000, 3),
+            completed.stdout,
+            completed.stderr,
+        ), ensure_ascii=False))
     else:
         if completed.stdout:
             sys.stdout.write(completed.stdout)
@@ -216,24 +213,41 @@ def _emit_failure(
     returncode: int,
 ) -> int:
     if output == "json":
-        print(
-            json.dumps(
-                {
-                    "command": command,
-                    "repo_root": str(repo_root),
-                    "policy_path": str(policy_path),
-                    "parser": parser_mode,
-                    "returncode": returncode,
-                    "duration_ms": 0.0,
-                    "stdout": "",
-                    "stderr": message,
-                },
-                ensure_ascii=False,
-            )
-        )
+        print(json.dumps(_result_payload(
+            command, repo_root, policy_path, parser_mode, returncode, 0.0, "", message
+        ), ensure_ascii=False))
     else:
         print(message, file=sys.stderr)
     return returncode
+
+
+def _result_payload(
+    command: str,
+    repo_root: Path,
+    policy_path: Path,
+    parser_mode: str,
+    returncode: int,
+    duration_ms: float,
+    stdout: str,
+    stderr: str,
+) -> dict[str, Any]:
+    combined = [*stdout.splitlines(), *stderr.splitlines()]
+    violations = [line.strip()[2:].strip() for line in combined if line.strip().startswith("- ")]
+    warnings = [line.strip() for line in combined if "warning:" in line.lower()]
+    return {
+        "schema_version": JSON_SCHEMA_VERSION,
+        "command": command,
+        "repo_root": str(repo_root),
+        "policy_path": str(policy_path),
+        "parser": parser_mode,
+        "status": "passed" if returncode == 0 else "failed",
+        "returncode": returncode,
+        "duration_ms": duration_ms,
+        "violations": violations,
+        "warnings": warnings,
+        "stdout": stdout,
+        "stderr": stderr,
+    }
 
 
 if __name__ == "__main__":

@@ -3,9 +3,14 @@ from __future__ import annotations
 from collections import defaultdict
 from pathlib import Path
 
-from .constants import REPO_ROOT
+from dotnet_quality_gates.context import current_context
+
 from .models import SourceClassInfo, TestClassInfo
 from .parsing import parse_test_method_name
+
+
+def _repo_root() -> Path:
+    return current_context().repo_root
 
 COMPANION_TEST_SUFFIXES = (
     "Additional",
@@ -178,7 +183,7 @@ def build_include_to_test_root_map(
 
     for include_root in include_roots:
         try:
-            include_relative = include_root.relative_to(REPO_ROOT)
+            include_relative = include_root.relative_to(_repo_root())
         except ValueError:
             violations.append(
                 f"Include root '{include_root}' is outside repository root and cannot be mapped to unit-test root."
@@ -238,7 +243,7 @@ def validate_conventions(
             continue
         if len(tests) == 0:
             violations.append(
-                f"{source.path.relative_to(REPO_ROOT)}:{source.line}: "
+                f"{source.path.relative_to(_repo_root())}:{source.line}: "
                 f"Missing unit test class '{class_name}Tests' for source class '{class_name}'."
             )
 
@@ -252,7 +257,7 @@ def validate_conventions(
                 if is_allowed_unmapped_companion_test(tested_name, test_class.path):
                     continue
                 violations.append(
-                    f"{test_class.path.relative_to(REPO_ROOT)}:{test_class.line}: "
+                    f"{test_class.path.relative_to(_repo_root())}:{test_class.line}: "
                     f"Test class '{test_class.name}' has no matching source class '{source_name}'."
             )
             continue
@@ -271,7 +276,7 @@ def validate_conventions(
                 test_subject = resolve_test_subject(method.name, source.name, targetable_members)
                 if test_subject is None:
                     violations.append(
-                        f"{test_class.path.relative_to(REPO_ROOT)}:{method.line}: "
+                        f"{test_class.path.relative_to(_repo_root())}:{method.line}: "
                         f"Unit test method '{method.name}' must include a target and descriptive suffix, "
                         "for example '<MemberName>_ReturnsValue', '<MemberName>_WhenCondition', "
                         "or '<ClassName>_<Behavior>'."
@@ -280,7 +285,7 @@ def validate_conventions(
 
                 if test_subject != source.name and targetable_members and test_subject not in targetable_members:
                     violations.append(
-                        f"{test_class.path.relative_to(REPO_ROOT)}:{method.line}: "
+                        f"{test_class.path.relative_to(_repo_root())}:{method.line}: "
                         f"Test method '{method.name}' targets '{test_subject}', "
                         f"which is not a declared member or class-level behavior on '{source.name}'."
                     )
@@ -305,12 +310,12 @@ def validate_conventions(
 
             if test.path.parent.resolve() != expected_directory.resolve():
                 try:
-                    expected_relative = expected_directory.relative_to(REPO_ROOT).as_posix()
+                    expected_relative = expected_directory.relative_to(_repo_root()).as_posix()
                 except ValueError:
                     expected_relative = expected_directory.as_posix()
 
                 violations.append(
-                    f"{test.path.relative_to(REPO_ROOT)}:{test.line}: "
+                    f"{test.path.relative_to(_repo_root())}:{test.line}: "
                     f"Test class '{test.name}' for source '{source.name}' must be located in '{expected_relative}' "
                     f"to mirror source architecture."
                 )

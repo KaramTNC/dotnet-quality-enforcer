@@ -17,7 +17,11 @@ from dotnet_quality_gates.unit_test_conventions import (  # noqa: E402
     iter_cs_files,
     mask_comments_and_strings,
 )
-from dotnet_quality_gates.unit_test_conventions.roslyn import RoslynError, analyze_csharp_file  # noqa: E402
+from dotnet_quality_gates.unit_test_conventions.roslyn import (  # noqa: E402
+    RoslynError,
+    analyze_csharp_file,
+    analyze_csharp_files,
+)
 
 TYPE_DECLARATION_PATTERN = re.compile(
     r"\b(?:public|protected|internal|private|file)?\s*"
@@ -87,12 +91,28 @@ def validate_source_type_layout(
     violations: list[str] = []
 
     for include_root in include_roots:
-        for file_path in iter_cs_files(include_root):
-            if is_excluded(file_path, exclude_globs):
-                continue
+        file_paths = [
+            file_path
+            for file_path in iter_cs_files(include_root)
+            if not is_excluded(file_path, exclude_globs)
+        ]
+        try:
+            roslyn_analyses = analyze_csharp_files(file_paths)
+        except RoslynError as ex:
+            violations.append(f"{include_root.relative_to(REPO_ROOT)}: {ex}")
+            continue
 
+        for file_path in file_paths:
             try:
-                declarations = parse_top_level_type_declarations(file_path)
+                roslyn_analysis = roslyn_analyses.get(file_path.resolve())
+                if roslyn_analysis is not None:
+                    declarations = [
+                        (name, line)
+                        for name, line, kind in roslyn_analysis.type_declarations
+                        if kind in {"class", "interface"}
+                    ]
+                else:
+                    declarations = parse_top_level_type_declarations(file_path)
             except RoslynError as ex:
                 violations.append(f"{file_path.relative_to(REPO_ROOT)}: {ex}")
                 continue
