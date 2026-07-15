@@ -40,6 +40,11 @@ class RoslynBridgeTests(unittest.TestCase):
         self.assertEqual(analysis.source_classes[0].targetable_members, {"Run", "Properties"})
         self.assertEqual(analysis.diagnostics[0].diagnostic_id, "CS1002")
 
+    def test_strict_mode_requires_a_configured_helper(self) -> None:
+        with patch.dict(os.environ, {"DOTNET_QUALITY_PARSER": "roslyn"}, clear=True):
+            with self.assertRaises(roslyn.RoslynError):
+                roslyn.analyze_csharp_file(Path("Example.cs"))
+
 
 if __name__ == "__main__":
     unittest.main()

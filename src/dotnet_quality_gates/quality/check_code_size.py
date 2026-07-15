@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import argparse
 import bisect
-import os
 import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotnet_quality_gates.context import current_context
 from dotnet_quality_gates.quality.common import (  # noqa: E402
     load_policy_object,
     load_prefixed_baseline_violations,
@@ -16,14 +16,15 @@ from dotnet_quality_gates.quality.common import (  # noqa: E402
     policy_section,
     sanitize_string_list,
 )
+from dotnet_quality_gates.subprocess_utils import run_command
 from dotnet_quality_gates.unit_test_conventions import (  # noqa: E402
     find_matching_brace,
     iter_cs_files,
     mask_comments_and_strings,
 )
 
-REPO_ROOT = Path(os.environ.get("DOTNET_QUALITY_REPO_ROOT", Path.cwd())).resolve()
-DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
+REPO_ROOT = current_context().repo_root
+DEFAULT_POLICY_PATH = current_context().policy_path
 
 DEFAULT_INCLUDE_ROOTS = ["src"]
 DEFAULT_EXCLUDE_GLOBS = [
@@ -476,7 +477,7 @@ def collect_files(
 
 
 def run_git_diff(base: str) -> str:
-    result = subprocess.run(
+    result = run_command(
         [
             "git",
             "diff",
@@ -490,10 +491,8 @@ def run_git_diff(base: str) -> str:
             ":(exclude)**/*.Designer.cs",
             ":(exclude)**/GlobalUsings.cs",
         ],
-        check=True,
-        text=True,
-        capture_output=True,
         cwd=REPO_ROOT,
+        check=True,
     )
     return result.stdout
 
@@ -599,7 +598,7 @@ def main() -> int:
             if args.scope == "full"
             else collect_diff_metrics(args.base, config)
         )
-    except (OSError, subprocess.CalledProcessError, ValueError) as ex:
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError) as ex:
         detail = getattr(ex, "stderr", None) or str(ex)
         print(f"Code size check could not inspect the repository: {detail.strip()}", file=sys.stderr)
         return 1

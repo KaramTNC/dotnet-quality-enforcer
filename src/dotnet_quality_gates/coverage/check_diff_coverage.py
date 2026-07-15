@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
-import os
 import re
 import subprocess
 import sys
@@ -11,14 +10,16 @@ from collections import defaultdict
 from collections.abc import Mapping
 from pathlib import Path
 
+from dotnet_quality_gates.context import current_context
 from dotnet_quality_gates.quality.common import (
     load_policy_object,
     parse_changed_lines,
     policy_section,
 )
+from dotnet_quality_gates.subprocess_utils import run_command
 
-REPO_ROOT = Path(os.environ.get("DOTNET_QUALITY_REPO_ROOT", Path.cwd())).resolve()
-DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
+REPO_ROOT = current_context().repo_root
+DEFAULT_POLICY_PATH = current_context().policy_path
 DEFAULT_COVERAGE_FILEFILTERS_PATH = REPO_ROOT / ".quality" / "coverage_filefilters.txt"
 DEFAULT_LINE_THRESHOLD = 0.80
 DEFAULT_BRANCH_THRESHOLD: float | None = None
@@ -50,7 +51,7 @@ def load_diff_coverage_config(policy_path: Path) -> tuple[float, float | None, i
 
 
 def run_git_diff(base: str) -> str:
-    result = subprocess.run(
+    result = run_command(
         [
             "git",
             "diff",
@@ -62,10 +63,8 @@ def run_git_diff(base: str) -> str:
             ":(exclude)**/*.g.cs",
             ":(exclude)**/*.g.i.cs",
         ],
-        check=True,
-        text=True,
-        capture_output=True,
         cwd=REPO_ROOT,
+        check=True,
     )
     return result.stdout
 
@@ -240,7 +239,7 @@ def main() -> int:
 
     try:
         changed = parse_changed_lines(run_git_diff(args.base))
-    except (OSError, subprocess.CalledProcessError) as ex:
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as ex:
         detail = getattr(ex, "stderr", None) or str(ex)
         print(f"Unable to compute git diff against '{args.base}': {detail.strip()}", file=sys.stderr)
         return 1

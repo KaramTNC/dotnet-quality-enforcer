@@ -17,6 +17,9 @@ dev = [
     "mypy>=1.13",
     "ruff>=0.8",
 ]
+security = [
+    "pip-audit>=2.7",
+]
 
 [project.scripts]
 dotnet-quality = "dotnet_quality_gates.cli:main"

@@ -7,7 +7,13 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotnet_quality_gates.context import PARSER_MODES, current_context
+
 from .models import SourceClassInfo, TestClassInfo, TestMethodInfo
+
+
+class RoslynError(RuntimeError):
+    """Raised when strict Roslyn parsing cannot analyze a file."""
 
 
 @dataclass(frozen=True)
@@ -32,15 +38,30 @@ def _configured_command() -> list[str] | None:
     return shlex.split(configured, posix=os.name != "nt")
 
 
-def analyze_csharp_file(path: Path) -> RoslynFileAnalysis | None:
+def parser_mode(value: str | None = None) -> str:
+    selected = (value or os.environ.get("DOTNET_QUALITY_PARSER", "auto")).strip().lower()
+    if selected not in PARSER_MODES:
+        raise ValueError(f"Unsupported parser mode '{selected}'. Choose: {', '.join(PARSER_MODES)}")
+    return selected
+
+
+def analyze_csharp_file(path: Path, mode: str | None = None) -> RoslynFileAnalysis | None:
     """Analyze a C# file with the optional Roslyn helper.
 
-    The Python parser remains the default so the package has no .NET runtime
-    dependency. Set ``DOTNET_QUALITY_ROSLYN_COMMAND`` to an executable command
-    for modern C# syntax support; failures fall back to the existing parser.
+    ``auto`` uses Roslyn when configured and otherwise uses the Python parser.
+    ``python`` always uses the fallback parser. ``roslyn`` is strict and raises
+    ``RoslynError`` when the helper is missing or fails.
     """
+    selected_mode = parser_mode(mode)
+    if selected_mode == "python":
+        return None
+
     command = _configured_command()
     if not command:
+        if selected_mode == "roslyn":
+            raise RoslynError(
+                "Roslyn parser was requested but DOTNET_QUALITY_ROSLYN_COMMAND is not configured"
+            )
         return None
 
     try:
@@ -49,14 +70,26 @@ def analyze_csharp_file(path: Path) -> RoslynFileAnalysis | None:
             check=False,
             capture_output=True,
             text=True,
+            timeout=current_context().command_timeout_seconds,
         )
         if completed.returncode != 0:
+            if selected_mode == "roslyn":
+                detail = completed.stderr.strip() or f"helper exited with code {completed.returncode}"
+                raise RoslynError(f"Roslyn helper failed for '{path}': {detail}")
             return None
         payload = json.loads(completed.stdout)
         if not isinstance(payload, dict):
+            if selected_mode == "roslyn":
+                raise RoslynError("Roslyn helper returned a non-object JSON response")
             return None
         return _parse_analysis(path, payload)
-    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+    except subprocess.TimeoutExpired as ex:
+        if selected_mode == "roslyn":
+            raise RoslynError(f"Roslyn helper timed out for '{path}'") from ex
+        return None
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as ex:
+        if selected_mode == "roslyn":
+            raise RoslynError(f"Roslyn helper returned invalid output for '{path}': {ex}") from ex
         return None
 
 

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import sys
 from pathlib import Path
 
+from dotnet_quality_gates.context import current_context
 from dotnet_quality_gates.quality.common import load_policy_object, policy_section
+from dotnet_quality_gates.unit_test_conventions.discovery import iter_csharp_files
 
-REPO_ROOT = Path(os.environ.get("DOTNET_QUALITY_REPO_ROOT", Path.cwd())).resolve()
-DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
+REPO_ROOT = current_context().repo_root
+DEFAULT_POLICY_PATH = current_context().policy_path
 
 ONION_LAYERS = ("Domain", "Application", "Infrastructure", "Presentation")
 TEST_SUITE_ROOTS = ("Unit", "Integration", "EndToEnd")
@@ -83,17 +84,7 @@ def is_skipped_path(path: Path) -> bool:
 
 
 def iter_cs_files(root: Path) -> list[Path]:
-    if not root.exists():
-        return []
-
-    files: list[Path] = []
-    for path in root.rglob("*.cs"):
-        if is_skipped_path(path):
-            continue
-        if path.name in SKIP_FILE_NAMES:
-            continue
-        files.append(path)
-    return sorted(files, key=lambda item: item.as_posix().lower())
+    return iter_csharp_files(root, SKIP_FILE_NAMES)
 
 
 def has_source_files(root: Path) -> bool:

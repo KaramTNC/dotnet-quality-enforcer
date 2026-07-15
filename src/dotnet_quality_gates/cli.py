@@ -7,6 +7,10 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
+
+from dotnet_quality_gates.context import PARSER_MODES, ExecutionContext
+from dotnet_quality_gates.policy import PolicyValidationError, validate_policy_file
 
 
 @dataclass(frozen=True)
@@ -69,6 +73,9 @@ COMMAND_NAMES = tuple(_commands())
 
 
 def main() -> int:
+    environment_parser = os.environ.get("DOTNET_QUALITY_PARSER", "auto").strip().lower() or "auto"
+    if environment_parser not in PARSER_MODES:
+        environment_parser = "auto"
     parser = argparse.ArgumentParser(
         prog="dotnet-quality",
         description="Run configurable quality and coverage gates for a C#/.NET repository.",
@@ -86,6 +93,28 @@ def main() -> int:
         default="text",
         help="Output format. JSON wraps command output and exit status for automation.",
     )
+    parser.add_argument(
+        "--policy-path",
+        default=None,
+        help="Quality policy JSON path. Overrides the repository default for the child command.",
+    )
+    parser.add_argument(
+        "--parser",
+        choices=PARSER_MODES,
+        default=environment_parser,
+        help="C# parser mode: auto uses Roslyn when configured, python forces the fallback parser, roslyn requires Roslyn.",
+    )
+    parser.add_argument(
+        "--roslyn-command",
+        default=os.environ.get("DOTNET_QUALITY_ROSLYN_COMMAND"),
+        help="Roslyn helper command used by --parser roslyn or auto.",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=300.0,
+        help="Maximum seconds for each child or external tool command.",
+    )
     command_descriptions = "\n".join(
         f"  {name:<28} {spec.description}" for name, spec in commands.items()
     )
@@ -94,31 +123,60 @@ def main() -> int:
     parser.epilog = f"Available commands:\n{command_descriptions}"
     args = parser.parse_args()
 
-    repo_root = os.path.abspath(args.repo_root)
-    if not os.path.isdir(repo_root):
+    repo_root = Path(args.repo_root).resolve()
+    if not repo_root.is_dir():
         parser.error(f"Repository root does not exist: {repo_root}")
 
-    spec = commands[args.command]
-    started_at = time.perf_counter()
-    child_environment = os.environ.copy()
-    # The child resolves its repository from its working directory. Do not let
-    # a stale process-level override defeat the explicit --repo-root argument.
-    child_environment.pop("DOTNET_QUALITY_REPO_ROOT", None)
-    completed = subprocess.run(
-        [sys.executable, "-m", spec.module, *args.arguments],
-        cwd=repo_root,
-        check=False,
-        capture_output=args.output == "json",
-        env=child_environment,
-        text=True,
+    policy_path = _policy_path(repo_root, args.policy_path, args.arguments)
+    try:
+        validate_policy_file(policy_path)
+    except PolicyValidationError as ex:
+        return _emit_failure(args.output, args.command, repo_root, policy_path, args.parser, str(ex), 2)
+
+    context = ExecutionContext(
+        repo_root=repo_root,
+        policy_path=policy_path,
+        parser_mode=args.parser,
+        command_timeout_seconds=max(1.0, args.timeout),
     )
+
+    spec = commands[args.command]
+    child_arguments = list(args.arguments)
+    if args.policy_path is not None and args.command != "coverage-report" and not any(
+        argument == "--policy-path" or argument.startswith("--policy-path=")
+        for argument in child_arguments
+    ):
+        child_arguments.extend(["--policy-path", str(policy_path)])
+    started_at = time.perf_counter()
+    child_environment = context.child_environment()
+    if args.roslyn_command:
+        child_environment["DOTNET_QUALITY_ROSLYN_COMMAND"] = args.roslyn_command
+    else:
+        child_environment.pop("DOTNET_QUALITY_ROSLYN_COMMAND", None)
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-m", spec.module, *child_arguments],
+            cwd=repo_root,
+            check=False,
+            capture_output=args.output == "json",
+            env=child_environment,
+            text=True,
+            timeout=context.command_timeout_seconds,
+        )
+    except FileNotFoundError as ex:
+        return _emit_failure(args.output, args.command, repo_root, policy_path, args.parser, str(ex), 127)
+    except subprocess.TimeoutExpired:
+        message = f"Command '{args.command}' exceeded the {context.command_timeout_seconds:g}s timeout."
+        return _emit_failure(args.output, args.command, repo_root, policy_path, args.parser, message, 124)
 
     if args.output == "json":
         print(
             json.dumps(
                 {
                     "command": args.command,
-                    "repo_root": repo_root,
+                    "repo_root": str(repo_root),
+                    "policy_path": str(policy_path),
+                    "parser": args.parser,
                     "returncode": completed.returncode,
                     "duration_ms": round((time.perf_counter() - started_at) * 1000, 3),
                     "stdout": completed.stdout,
@@ -134,6 +192,48 @@ def main() -> int:
             sys.stderr.write(completed.stderr)
 
     return completed.returncode
+
+
+def _policy_path(repo_root: Path, explicit: str | None, arguments: list[str]) -> Path:
+    value = explicit
+    for index, argument in enumerate(arguments):
+        if argument == "--policy-path" and index + 1 < len(arguments):
+            value = arguments[index + 1]
+        elif argument.startswith("--policy-path="):
+            value = argument.split("=", 1)[1]
+    selected = value or ".quality/quality_policy.json"
+    path = Path(selected)
+    return (repo_root / path).resolve() if not path.is_absolute() else path.resolve()
+
+
+def _emit_failure(
+    output: str,
+    command: str,
+    repo_root: Path,
+    policy_path: Path,
+    parser_mode: str,
+    message: str,
+    returncode: int,
+) -> int:
+    if output == "json":
+        print(
+            json.dumps(
+                {
+                    "command": command,
+                    "repo_root": str(repo_root),
+                    "policy_path": str(policy_path),
+                    "parser": parser_mode,
+                    "returncode": returncode,
+                    "duration_ms": 0.0,
+                    "stdout": "",
+                    "stderr": message,
+                },
+                ensure_ascii=False,
+            )
+        )
+    else:
+        print(message, file=sys.stderr)
+    return returncode
 
 
 if __name__ == "__main__":

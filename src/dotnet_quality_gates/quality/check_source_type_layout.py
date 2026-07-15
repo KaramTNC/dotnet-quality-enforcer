@@ -5,6 +5,7 @@ import re
 import sys
 from pathlib import Path
 
+from dotnet_quality_gates.context import current_context
 from dotnet_quality_gates.quality.common import (  # noqa: E402
     is_repo_excluded,
     load_prefixed_baseline_violations,
@@ -16,7 +17,7 @@ from dotnet_quality_gates.unit_test_conventions import (  # noqa: E402
     iter_cs_files,
     mask_comments_and_strings,
 )
-from dotnet_quality_gates.unit_test_conventions.roslyn import analyze_csharp_file  # noqa: E402
+from dotnet_quality_gates.unit_test_conventions.roslyn import RoslynError, analyze_csharp_file  # noqa: E402
 
 TYPE_DECLARATION_PATTERN = re.compile(
     r"\b(?:public|protected|internal|private|file)?\s*"
@@ -25,7 +26,7 @@ TYPE_DECLARATION_PATTERN = re.compile(
 )
 
 
-DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
+DEFAULT_POLICY_PATH = current_context().policy_path
 DEFAULT_INCLUDE_ROOTS = ["src"]
 DEFAULT_EXCLUDE_GLOBS = [
     "**/*.Designer.cs",
@@ -90,7 +91,11 @@ def validate_source_type_layout(
             if is_excluded(file_path, exclude_globs):
                 continue
 
-            declarations = parse_top_level_type_declarations(file_path)
+            try:
+                declarations = parse_top_level_type_declarations(file_path)
+            except RoslynError as ex:
+                violations.append(f"{file_path.relative_to(REPO_ROOT)}: {ex}")
+                continue
             if len(declarations) <= 1:
                 continue
 

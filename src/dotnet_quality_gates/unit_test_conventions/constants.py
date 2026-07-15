@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import os
 import re
-from pathlib import Path
 
-REPO_ROOT = Path(os.environ.get("DOTNET_QUALITY_REPO_ROOT", Path.cwd())).resolve()
-DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
+from dotnet_quality_gates.context import current_context
+
+_CONTEXT = current_context()
+REPO_ROOT = _CONTEXT.repo_root
+DEFAULT_POLICY_PATH = _CONTEXT.policy_path
 DEFAULT_SRC_ROOT = REPO_ROOT / "src"
 DEFAULT_UNIT_TEST_ROOT = REPO_ROOT / "tests"
 DEFAULT_SOURCE_INCLUDE_ROOTS = ["src"]
