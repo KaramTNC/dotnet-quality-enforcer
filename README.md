@@ -30,6 +30,33 @@ The checks run against an explicit repository working directory. A policy file i
 
 The package has no runtime Python dependencies outside the standard library.
 
+## GitHub Action
+
+This repository can be used directly as a cross-platform composite action. Pin consumers to a release tag or, preferably, an immutable commit SHA:
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - id: quality
+    uses: KaramTNC/dotnet-quality-enforcer@v1
+    with:
+      command: code-size
+      arguments: --scope full
+      parser: auto
+```
+
+The action installs the package, runs the selected gate, and exposes `result`, `status`, `returncode`, `violations`, and `warnings` outputs. Set `install-roslyn: true` to install the .NET 8 SDK and build the bundled Roslyn helper before running a Roslyn-enabled gate. The `coverage-report` command still requires ReportGenerator to be available on the runner.
+
+The action's `result` output uses the same `schema_version: 1` JSON envelope as the command-line interface:
+
+```yaml
+- name: Fail on quality violations
+  if: steps.quality.outputs.status == 'failed'
+  run: echo '${{ steps.quality.outputs.violations }}'
+```
+
+The release-download badge above counts downloads of GitHub Release assets. It does not count workflow executions that reference this repository with `uses:`. GitHub Actions usage is tracked separately through GitHub's Actions usage metrics; no telemetry is sent by this action.
+
 ## Installation
 
 The current public distributions are attached to [GitHub Releases](https://github.com/KaramTNC/dotnet-quality-enforcer/releases). Download the wheel that matches the release you want, or install from a source checkout:
@@ -117,8 +144,8 @@ Run the local checks with:
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py"
-ruff check src tests
-mypy src
+ruff check src tests action_runner.py
+mypy src action_runner.py
 pip-audit .
 ```
 

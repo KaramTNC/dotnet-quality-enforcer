@@ -1,0 +1,114 @@
+name: .NET Quality Enforcer
+description: Run configurable Python and C#/.NET quality gates in GitHub Actions.
+author: KaramTNC
+
+inputs:
+  command:
+    description: Quality command to run, such as code-size or test-conventions.
+    required: true
+  arguments:
+    description: Space-separated arguments passed to the selected quality command.
+    required: false
+    default: ""
+  repo-root:
+    description: Repository path to analyze, relative to the workspace unless absolute.
+    required: false
+    default: "."
+  policy-path:
+    description: Optional quality policy JSON path.
+    required: false
+    default: ""
+  parser:
+    description: "C# parser mode: auto, python, or roslyn."
+    required: false
+    default: auto
+  roslyn-command:
+    description: Optional Roslyn helper command. Set automatically when install-roslyn is true.
+    required: false
+    default: ""
+  install-roslyn:
+    description: Build the bundled .NET 8 Roslyn helper before running the gate.
+    required: false
+    default: "false"
+  python-version:
+    description: Python version to install on the runner.
+    required: false
+    default: "3.13"
+  timeout:
+    description: Maximum seconds allowed for the quality command and external tools.
+    required: false
+    default: "300"
+
+outputs:
+  result:
+    description: Complete schema-versioned JSON result envelope.
+  status:
+    description: Quality result status, passed or failed.
+  returncode:
+    description: Quality command exit code.
+  violations:
+    description: JSON array of extracted violation messages.
+  warnings:
+    description: JSON array of extracted warning messages.
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install quality gate package (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: python -m pip install "$GITHUB_ACTION_PATH"
+
+    - name: Install quality gate package (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: python -m pip install "$env:GITHUB_ACTION_PATH"
+
+    - name: Set up .NET for Roslyn
+      if: inputs.install-roslyn == 'true'
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: "8.x"
+
+    - name: Build Roslyn helper (Unix)
+      if: runner.os != 'Windows' && inputs.install-roslyn == 'true'
+      shell: bash
+      run: dotnet build "$GITHUB_ACTION_PATH/tools/roslyn-analyzer/DotnetQualityRoslyn.csproj" --configuration Release --nologo
+
+    - name: Build Roslyn helper (Windows)
+      if: runner.os == 'Windows' && inputs.install-roslyn == 'true'
+      shell: pwsh
+      run: dotnet build "$env:GITHUB_ACTION_PATH/tools/roslyn-analyzer/DotnetQualityRoslyn.csproj" --configuration Release --nologo
+
+    - name: Run quality gate (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      env:
+        ACTION_COMMAND: ${{ inputs.command }}
+        ACTION_ARGUMENTS: ${{ inputs.arguments }}
+        ACTION_REPO_ROOT: ${{ inputs.repo-root }}
+        ACTION_POLICY_PATH: ${{ inputs.policy-path }}
+        ACTION_PARSER: ${{ inputs.parser }}
+        ACTION_ROSLYN_COMMAND: ${{ inputs.roslyn-command }}
+        ACTION_INSTALL_ROSLYN: ${{ inputs.install-roslyn }}
+        ACTION_TIMEOUT: ${{ inputs.timeout }}
+      run: python "$GITHUB_ACTION_PATH/action_runner.py"
+
+    - name: Run quality gate (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        ACTION_COMMAND: ${{ inputs.command }}
+        ACTION_ARGUMENTS: ${{ inputs.arguments }}
+        ACTION_REPO_ROOT: ${{ inputs.repo-root }}
+        ACTION_POLICY_PATH: ${{ inputs.policy-path }}
+        ACTION_PARSER: ${{ inputs.parser }}
+        ACTION_ROSLYN_COMMAND: ${{ inputs.roslyn-command }}
+        ACTION_INSTALL_ROSLYN: ${{ inputs.install-roslyn }}
+        ACTION_TIMEOUT: ${{ inputs.timeout }}
+      run: python "$env:GITHUB_ACTION_PATH/action_runner.py"
