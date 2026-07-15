@@ -1,6 +1,9 @@
 name: .NET Quality Enforcer
 description: Run configurable Python and C#/.NET code quality gates in GitHub Actions.
 author: KaramTNC
+branding:
+  color: blue
+  icon: check
 
 inputs:
   command:
