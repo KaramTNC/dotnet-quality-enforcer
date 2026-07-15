@@ -21,6 +21,38 @@ The package owns the analysis engine and its tests. Consuming repositories own t
 
 The checks run against an explicit repository working directory. A policy file is optional for commands that provide defaults, but it is recommended for repeatable CI configuration.
 
+## Quality metrics and rules
+
+The enforcer combines numeric maintainability metrics with structural quality rules. Thresholds below are built-in defaults and can be overridden in `.quality/quality_policy.json`.
+
+| Area | What is measured or enforced | Built-in default |
+| --- | --- | --- |
+| Code size | Physical lines in each method, type, and source file; partial types are also aggregated across files. | Warn at 40/250/300 lines and fail at 60/350/450 lines for methods/types/files respectively. |
+| Diff complexity | Changed production methods are checked for cyclomatic complexity, cognitive complexity, and CRAP score. | Cyclomatic <= 10, cognitive <= 10, CRAP <= 30.00. No file-count limit by default. |
+| CRAP score | Combines cyclomatic complexity with method coverage: `complexity² × (1 - coverage)³ + complexity`. Higher complexity and lower coverage produce a higher risk score. | Maximum 30.00. Coverage comes from the supplied Cobertura report. |
+| Diff coverage | Executable changed-line coverage and, when configured, changed-branch coverage. | Line coverage >= 80%; branch coverage is optional. No file-count limit by default. |
+| Repository coverage | Cobertura line coverage, plus optional branch coverage, for configured packages and classes. | Line coverage defaults to 100% for configured expected packages; branch coverage is optional. |
+| Structural rules | Architectural dependency boundaries, namespace-to-path alignment, source type/file layout, public API XML summaries, test project placement, and source-to-test naming/target conventions. | Repository policy defines the expected layers, roots, mappings, and exclusions. |
+
+The `diff-complexity` gate uses cyclomatic complexity to count independent decision paths, cognitive complexity to account for nesting and control-flow readability, and CRAP to combine complexity with test coverage. These metrics are evaluated against changed code so existing legacy complexity can be managed with baselines and incremental enforcement.
+
+For example, the complexity and coverage limits can be configured as follows:
+
+```json
+{
+  "diff_quality": {
+    "cyclomatic_complexity_max": 10,
+    "cognitive_complexity_max": 10,
+    "crap_score_max": 30,
+    "line_coverage_threshold": 0.8,
+    "branch_coverage_threshold": 0.8,
+    "max_files_for_gate": 40
+  }
+}
+```
+
+Diff complexity and diff coverage analyze the full changed production set by default. Set `max_files_for_gate` to a positive integer only when a repository explicitly wants a maintenance cap; the setting applies to both diff gates.
+
 ## Requirements
 
 - Python 3.10 or newer
