@@ -26,7 +26,7 @@ DEFAULT_POLICY_PATH = current_context().policy_path
 DEFAULT_CYCLOMATIC_MAX = 10
 DEFAULT_COGNITIVE_MAX = 10
 DEFAULT_CRAP_MAX = 30.0
-DEFAULT_MAX_FILES_FOR_GATE = 40
+DEFAULT_MAX_FILES_FOR_GATE: int | None = None
 
 CONTROL_KEYWORDS = {
     "if",
@@ -76,7 +76,7 @@ class MethodMetric:
         return (self.complexity**2) * (uncovered**3) + self.complexity
 
 
-def load_diff_quality_config(policy_path: Path) -> tuple[int, int, float, int]:
+def load_diff_quality_config(policy_path: Path) -> tuple[int, int, float, int | None]:
     section = policy_section(load_policy_object(policy_path, "diff quality"), "diff_quality")
     cyclomatic_max = section.get("cyclomatic_complexity_max", DEFAULT_CYCLOMATIC_MAX)
     cognitive_max = section.get("cognitive_complexity_max", DEFAULT_COGNITIVE_MAX)
@@ -89,7 +89,7 @@ def load_diff_quality_config(policy_path: Path) -> tuple[int, int, float, int]:
         cognitive_max = DEFAULT_COGNITIVE_MAX
     if not isinstance(crap_max, (int, float)) or crap_max < 1:
         crap_max = DEFAULT_CRAP_MAX
-    if not isinstance(max_files, int) or max_files < 1:
+    if max_files is not None and (not isinstance(max_files, int) or isinstance(max_files, bool) or max_files < 1):
         max_files = DEFAULT_MAX_FILES_FOR_GATE
 
     return cyclomatic_max, cognitive_max, float(crap_max), max_files
@@ -520,12 +520,12 @@ def validate_diff_complexity(
     cyclomatic_max: int,
     cognitive_max: int,
     crap_max: float,
-    max_files_for_gate: int,
+    max_files_for_gate: int | None,
 ) -> list[str]:
     if not changed:
         return []
 
-    if len(changed) > max_files_for_gate:
+    if max_files_for_gate is not None and len(changed) > max_files_for_gate:
         print(
             f"Diff complexity gate skipped: {len(changed)} changed production files exceeds "
             f"maintenance threshold of {max_files_for_gate}."

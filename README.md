@@ -2,9 +2,12 @@
 
 [![CI](https://github.com/KaramTNC/dotnet-quality-enforcer/actions/workflows/ci.yml/badge.svg)](https://github.com/KaramTNC/dotnet-quality-enforcer/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/KaramTNC/dotnet-quality-enforcer)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/KaramTNC/dotnet-quality-enforcer?sort=semver)](https://github.com/KaramTNC/dotnet-quality-enforcer/releases/latest)
 [![GitHub release downloads](https://img.shields.io/github/downloads/KaramTNC/dotnet-quality-enforcer/total.svg?label=GitHub%20release%20downloads)](https://github.com/KaramTNC/dotnet-quality-enforcer/releases)
 
 Installable, configuration-driven quality gates for C# and .NET repositories.
+
+This project is pre-1.0 and welcomes feedback from teams trying incremental quality enforcement in real repositories. The latest release is shown by the badge above.
 
 ## What it does
 
@@ -21,6 +24,38 @@ The package owns the analysis engine and its tests. Consuming repositories own t
 
 The checks run against an explicit repository working directory. A policy file is optional for commands that provide defaults, but it is recommended for repeatable CI configuration.
 
+## Quality metrics and rules
+
+The enforcer combines numeric maintainability metrics with structural quality rules. Thresholds below are built-in defaults and can be overridden in `.quality/quality_policy.json`.
+
+| Area | What is measured or enforced | Built-in default |
+| --- | --- | --- |
+| Code size | Physical lines in each method, type, and source file; partial types are also aggregated across files. | Warn at 40/250/300 lines and fail at 60/350/450 lines for methods/types/files respectively. |
+| Diff complexity | Changed production methods are checked for cyclomatic complexity, cognitive complexity, and CRAP score. | Cyclomatic <= 10, cognitive <= 10, CRAP <= 30.00. No file-count limit by default. |
+| CRAP score | Combines cyclomatic complexity with method coverage: `complexity² × (1 - coverage)³ + complexity`. Higher complexity and lower coverage produce a higher risk score. | Maximum 30.00. Coverage comes from the supplied Cobertura report. |
+| Diff coverage | Executable changed-line coverage and, when configured, changed-branch coverage. | Line coverage >= 80%; branch coverage is optional. No file-count limit by default. |
+| Repository coverage | Cobertura line coverage, plus optional branch coverage, for configured packages and classes. | Line coverage defaults to 100% for configured expected packages; branch coverage is optional. |
+| Structural rules | Architectural dependency boundaries, namespace-to-path alignment, source type/file layout, public API XML summaries, test project placement, and source-to-test naming/target conventions. | Repository policy defines the expected layers, roots, mappings, and exclusions. |
+
+The `diff-complexity` gate uses cyclomatic complexity to count independent decision paths, cognitive complexity to account for nesting and control-flow readability, and CRAP to combine complexity with test coverage. These metrics are evaluated against changed code so existing legacy complexity can be managed with baselines and incremental enforcement.
+
+For example, the complexity and coverage limits can be configured as follows:
+
+```json
+{
+  "diff_quality": {
+    "cyclomatic_complexity_max": 10,
+    "cognitive_complexity_max": 10,
+    "crap_score_max": 30,
+    "line_coverage_threshold": 0.8,
+    "branch_coverage_threshold": 0.8,
+    "max_files_for_gate": 40
+  }
+}
+```
+
+Diff complexity and diff coverage analyze the full changed production set by default. Set `max_files_for_gate` to a positive integer only when a repository explicitly wants a maintenance cap; the setting applies to both diff gates.
+
 ## Requirements
 
 - Python 3.10 or newer
@@ -36,14 +71,16 @@ This repository can be used directly as a cross-platform composite action. Pin c
 
 ```yaml
 steps:
-  - uses: actions/checkout@v4
+  - uses: actions/checkout@v7
   - id: quality
-    uses: KaramTNC/dotnet-quality-enforcer@v1
+    uses: KaramTNC/dotnet-quality-enforcer@v0
     with:
       command: code-size
       arguments: --scope full
       parser: auto
 ```
+
+The `v0` compatibility tag tracks the latest 0.x release. For production workflows, replace it with the release you have reviewed or an immutable commit SHA.
 
 The action installs the package, runs the selected gate, and exposes `result`, `status`, `returncode`, `violations`, and `warnings` outputs. Set `install-roslyn: true` to install the .NET 8 SDK and build the bundled Roslyn helper before running a Roslyn-enabled gate. The `coverage-report` command still requires ReportGenerator to be available on the runner.
 
@@ -67,11 +104,21 @@ cd dotnet-quality-enforcer
 python -m pip install .
 ```
 
+The versioned release workflow also supports publishing the package to PyPI through trusted publishing. Once the repository's `pypi` environment is connected to a PyPI trusted publisher, install the CLI with:
+
+```bash
+python -m pip install dotnet-quality-gates
+```
+
+The one-time PyPI trusted-publisher configuration should use owner `KaramTNC`, repository `dotnet-quality-enforcer`, workflow `package.yml`, and environment `pypi`. The workflow uses short-lived OIDC credentials; no PyPI token is stored in the repository.
+
 For local development, install the development tools as well:
 
 ```bash
 python -m pip install -e ".[dev]"
 ```
+
+For a copyable GitHub Actions workflow and starter policy, see [`examples/starter`](examples/starter).
 
 ## Usage
 
@@ -149,18 +196,15 @@ mypy src action_runner.py
 pip-audit .
 ```
 
-Pull requests targeting `staging` or `main` run the test suite on Python 3.10 through 3.13, plus static analysis and a Roslyn helper smoke test. Successful pushes to `main` build distributions and create a GitHub Release named `main-<commit-sha>`. Version tags such as `v0.2.0` create versioned releases. The release workflow requires GitHub Actions permission to write repository contents.
+Pull requests targeting `staging` or `main` run the test suite on Python 3.10 through 3.13, plus static analysis and a Roslyn helper smoke test. Successful pushes to `main` build distributions and create a GitHub Release named `main-<commit-sha>`. Version tags matching `vX.Y.Z` create versioned releases and publish the Python package when PyPI trusted publishing is configured. The release workflow requires GitHub Actions permission to write repository contents.
 
 The package version is derived from Git tags with `setuptools-scm`: a tag such as `v0.2.0` produces version `0.2.0`. Source checkouts without package metadata use `0.0.0+unknown`.
 
 ## Contributing
 
-1. Create a branch from `staging`.
-2. Make the change and add or update tests.
-3. Run the development checks locally.
-4. Open a pull request targeting `staging` and describe the user-facing impact.
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Issues and feature requests can be submitted through the [GitHub issue tracker](https://github.com/KaramTNC/dotnet-quality-enforcer/issues), and usage questions can be asked in [Discussions](https://github.com/KaramTNC/dotnet-quality-enforcer/discussions).
 
-Issues and feature requests can be submitted through the [GitHub issue tracker](https://github.com/KaramTNC/dotnet-quality-enforcer/issues).
+Security issues should follow the process in [SECURITY.md](SECURITY.md).
 
 ## License
 

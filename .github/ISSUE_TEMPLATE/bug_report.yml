@@ -1,0 +1,35 @@
+name: Bug report
+description: Report a reproducible problem with a quality gate, CLI command, or GitHub Action.
+title: "Bug: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and the behavior you expected.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.2.1
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Include the command, workflow step, policy fragment, and smallest useful example.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include operating system, Python version, .NET SDK version, and parser mode when relevant.
+    validations:
+      required: true

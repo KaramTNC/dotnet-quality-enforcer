@@ -23,7 +23,7 @@ DEFAULT_POLICY_PATH = current_context().policy_path
 DEFAULT_COVERAGE_FILEFILTERS_PATH = REPO_ROOT / ".quality" / "coverage_filefilters.txt"
 DEFAULT_LINE_THRESHOLD = 0.80
 DEFAULT_BRANCH_THRESHOLD: float | None = None
-DEFAULT_MAX_FILES_FOR_GATE = 100
+DEFAULT_MAX_FILES_FOR_GATE: int | None = None
 EXECUTABLE_LINE_PATTERN = re.compile(
     r"^(?:"
     r"await|break|case|catch|const|continue|do|else\s+if|for|foreach|if|lock|"
@@ -32,7 +32,7 @@ EXECUTABLE_LINE_PATTERN = re.compile(
 )
 
 
-def load_diff_coverage_config(policy_path: Path) -> tuple[float, float | None, int]:
+def load_diff_coverage_config(policy_path: Path) -> tuple[float, float | None, int | None]:
     section = policy_section(load_policy_object(policy_path, "diff coverage"), "diff_quality")
     line_threshold = section.get("line_coverage_threshold", DEFAULT_LINE_THRESHOLD)
     branch_threshold = section.get("branch_coverage_threshold", DEFAULT_BRANCH_THRESHOLD)
@@ -44,7 +44,7 @@ def load_diff_coverage_config(policy_path: Path) -> tuple[float, float | None, i
         not isinstance(branch_threshold, (int, float)) or not 0 <= branch_threshold <= 1
     ):
         branch_threshold = DEFAULT_BRANCH_THRESHOLD
-    if not isinstance(max_files, int) or max_files < 1:
+    if max_files is not None and (not isinstance(max_files, int) or isinstance(max_files, bool) or max_files < 1):
         max_files = DEFAULT_MAX_FILES_FOR_GATE
 
     return float(line_threshold), None if branch_threshold is None else float(branch_threshold), max_files
@@ -247,7 +247,7 @@ def main() -> int:
         print("No changed production .cs files detected; skipping diff coverage gate.")
         return 0
 
-    if len(changed) > max_files_for_gate:
+    if max_files_for_gate is not None and len(changed) > max_files_for_gate:
         print(
             f"Diff coverage gate skipped: {len(changed)} changed production files exceeds "
             f"maintenance threshold of {max_files_for_gate}."

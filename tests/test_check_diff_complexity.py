@@ -35,6 +35,12 @@ class CheckDiffComplexityTests(unittest.TestCase):
 
         self.assertEqual(config, (8, 14, 24.5, 12))
 
+    def test_load_diff_quality_config_defaults_to_unlimited_files(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            config = self.mod.load_diff_quality_config(Path(td) / "missing.json")
+
+        self.assertIsNone(config[3])
+
     def test_parse_methods_counts_cyclomatic_complexity(self) -> None:
         text = """
 namespace Sample;

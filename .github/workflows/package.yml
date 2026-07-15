@@ -28,13 +28,13 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -128,7 +128,7 @@ jobs:
           PY
 
       - name: Upload distributions as workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dotnet-quality-enforcer-distributions
           path: dist/
@@ -151,7 +151,7 @@ jobs:
 
     steps:
       - name: Download distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dotnet-quality-enforcer-distributions
           path: dist
@@ -160,13 +160,15 @@ jobs:
         if: github.event_name == 'workflow_run'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
           RELEASE_TAG: main-${{ github.event.workflow_run.head_sha }}
         run: |
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" dist/* --clobber
+          if gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/* --clobber --repo "$GH_REPO"
           else
             gh release create "$RELEASE_TAG" dist/* \
+              --repo "$GH_REPO" \
               --target "$RELEASE_SHA" \
               --title "Main build ${RELEASE_SHA:0:7}" \
               --generate-notes
@@ -176,12 +178,66 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          if gh release view "$GITHUB_REF_NAME" --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber --repo "$GH_REPO"
           else
             gh release create "$GITHUB_REF_NAME" dist/* \
+              --repo "$GH_REPO" \
               --target "$GITHUB_SHA" \
               --title "$GITHUB_REF_NAME" \
               --generate-notes
           fi
+
+      - name: Update major compatibility tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          major="${version%%.*}"
+          compatibility_tag="v${major}"
+          compatibility_ref="refs/tags/${compatibility_tag}"
+
+          if gh api "repos/${GH_REPO}/git/ref/tags/${compatibility_tag}" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/${GH_REPO}/git/refs/tags/${compatibility_tag}" \
+              -f sha="${GITHUB_SHA}" \
+              -F force=true >/dev/null
+          else
+            gh api --method POST "repos/${GH_REPO}/git/refs" \
+              -f ref="${compatibility_ref}" \
+              -f sha="${GITHUB_SHA}" >/dev/null
+          fi
+
+  publish-pypi:
+    name: Publish Python package to PyPI
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      id-token: write
+
+    environment:
+      name: pypi
+      url: https://pypi.org/p/dotnet-quality-gates
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v8
+        with:
+          name: dotnet-quality-enforcer-distributions
+          path: dist
+
+      - name: Select Python distributions
+        shell: bash
+        run: |
+          mkdir -p pypi-dist
+          cp dist/*.whl dist/dotnet_quality_gates-*.tar.gz pypi-dist/
+
+      - name: Publish package
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: pypi-dist/

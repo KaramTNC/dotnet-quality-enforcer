@@ -43,7 +43,7 @@ def validate_policy_document(document: dict[str, object], path: Path | None = No
             "cyclomatic_complexity_max": _positive_int,
             "cognitive_complexity_max": _positive_int,
             "crap_score_max": _positive_number,
-            "max_files_for_gate": _positive_int,
+            "max_files_for_gate": _optional_positive_int,
             "line_coverage_threshold": _ratio,
             "branch_coverage_threshold": _optional_ratio,
         },
@@ -118,6 +118,10 @@ def _string_list_map(value: object) -> bool:
 
 def _positive_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _optional_positive_int(value: object) -> bool:
+    return value is None or _positive_int(value)
 
 
 def _positive_number(value: object) -> bool:
