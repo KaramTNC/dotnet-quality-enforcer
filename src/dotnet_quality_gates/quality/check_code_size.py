@@ -499,7 +499,10 @@ def run_git_diff(base: str) -> str:
 
 def collect_metrics_for_file(path: Path, config: CodeSizeConfig) -> list[CodeSizeMetric]:
     text = path.read_text(encoding="utf-8", errors="ignore")
-    relative_path = path.relative_to(REPO_ROOT).as_posix()
+    # Resolve both paths before comparing them. Windows temporary directories
+    # may expose the repository root through an 8.3 alias while file discovery
+    # returns the corresponding long path.
+    relative_path = path.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
     return [
         file_metric(relative_path, text, config),
         *parse_types(relative_path, text, config),
