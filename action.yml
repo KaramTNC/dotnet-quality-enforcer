@@ -58,7 +58,7 @@ runs:
   using: composite
   steps:
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
 
@@ -74,7 +74,7 @@ runs:
 
     - name: Set up .NET for Roslyn
       if: inputs.install-roslyn == 'true'
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v5
       with:
         dotnet-version: "8.x"
 
