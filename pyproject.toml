@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dotnet-quality-gates"
+version = "0.1.0"
+description = "Configurable static quality and coverage gates for C#/.NET repositories."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "KaramTNC" }]
+dependencies = []
+
+[project.scripts]
+dotnet-quality = "dotnet_quality_gates.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
