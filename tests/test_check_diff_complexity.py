@@ -5,8 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from dotnet_quality_gates.quality import check_diff_complexity
 from helpers import REPO_ROOT
+
+from dotnet_quality_gates.quality import check_diff_complexity
 
 
 class CheckDiffComplexityTests(unittest.TestCase):

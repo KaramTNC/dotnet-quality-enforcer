@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sys
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
+
+from dotnet_quality_gates.quality.common import load_policy_object, policy_section
 
 REPO_ROOT = Path(os.environ.get("DOTNET_QUALITY_REPO_ROOT", Path.cwd())).resolve()
 DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
@@ -19,19 +20,11 @@ def load_expected_packages(policy_path: Path) -> set[str]:
     if not policy_path.exists():
         return set(DEFAULT_EXPECTED_PACKAGES)
 
-    try:
-        raw_policy = json.loads(policy_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as ex:
-        print(
-            f"Warning: failed to read policy file '{policy_path}': {ex}. "
-            "Falling back to built-in expected packages.",
-            file=sys.stderr,
-        )
+    section = policy_section(load_policy_object(policy_path, "expected packages"), "repo_coverage")
+    if not section:
         return set(DEFAULT_EXPECTED_PACKAGES)
 
-    expected_packages = (
-        raw_policy.get("repo_coverage", {}).get("expected_packages", DEFAULT_EXPECTED_PACKAGES)
-    )
+    expected_packages = section.get("expected_packages", DEFAULT_EXPECTED_PACKAGES)
     if not isinstance(expected_packages, list) or not all(
         isinstance(name, str) and name.strip() for name in expected_packages
     ):
@@ -178,7 +171,14 @@ def main() -> int:
         line_threshold = args.threshold if args.threshold is not None else 1.0
     branch_threshold = args.branch_threshold if args.branch_threshold is not None else None
 
-    overall_line, overall_branch, package_stats, class_stats = parse_merged_cobertura(coverage_path, expected_packages)
+    try:
+        overall_line, overall_branch, package_stats, class_stats = parse_merged_cobertura(
+            coverage_path,
+            expected_packages,
+        )
+    except (OSError, ET.ParseError, KeyError, ValueError) as ex:
+        print(f"Unable to read coverage report '{coverage_path}': {ex}", file=sys.stderr)
+        return 1
     missing_packages = sorted(expected_packages - set(package_stats))
 
     relevant_package_stats = {name: stats for name, stats in package_stats.items() if name in expected_packages}

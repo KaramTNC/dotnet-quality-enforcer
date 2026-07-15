@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import bisect
-import json
 import os
 import re
 import subprocess
@@ -11,16 +10,14 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-
-
 from dotnet_quality_gates.coverage.check_diff_coverage import (  # noqa: E402
     parse_changed_lines,
     parse_coverage,
     resolve_coverage_file,
     run_git_diff,
 )
+from dotnet_quality_gates.quality.common import load_policy_object, policy_section  # noqa: E402
 from dotnet_quality_gates.unit_test_conventions import find_matching_brace, mask_comments_and_strings  # noqa: E402
-
 
 REPO_ROOT = Path(os.environ.get("DOTNET_QUALITY_REPO_ROOT", Path.cwd())).resolve()
 DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
@@ -79,20 +76,7 @@ class MethodMetric:
 
 
 def load_diff_quality_config(policy_path: Path) -> tuple[int, int, float, int]:
-    if not policy_path.exists():
-        return DEFAULT_CYCLOMATIC_MAX, DEFAULT_COGNITIVE_MAX, DEFAULT_CRAP_MAX, DEFAULT_MAX_FILES_FOR_GATE
-
-    try:
-        raw_policy = json.loads(policy_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as ex:
-        print(
-            f"Warning: failed to read policy file '{policy_path}': {ex}. "
-            "Falling back to built-in diff quality config.",
-            file=sys.stderr,
-        )
-        return DEFAULT_CYCLOMATIC_MAX, DEFAULT_COGNITIVE_MAX, DEFAULT_CRAP_MAX, DEFAULT_MAX_FILES_FOR_GATE
-
-    section = raw_policy.get("diff_quality", {})
+    section = policy_section(load_policy_object(policy_path, "diff quality"), "diff_quality")
     cyclomatic_max = section.get("cyclomatic_complexity_max", DEFAULT_CYCLOMATIC_MAX)
     cognitive_max = section.get("cognitive_complexity_max", DEFAULT_COGNITIVE_MAX)
     crap_max = section.get("crap_score_max", DEFAULT_CRAP_MAX)
@@ -379,6 +363,7 @@ def read_git_file(base: str, path: str) -> str | None:
         check=False,
         text=True,
         capture_output=True,
+        cwd=REPO_ROOT,
     )
     if result.returncode != 0:
         return None
@@ -673,7 +658,12 @@ def main() -> int:
     crap_max = args.crap_max if args.crap_max is not None else policy_crap_max
     max_files = args.max_files_for_gate if args.max_files_for_gate is not None else policy_max_files
 
-    changed = parse_changed_lines(run_git_diff(args.base))
+    try:
+        changed = parse_changed_lines(run_git_diff(args.base))
+    except (OSError, subprocess.CalledProcessError) as ex:
+        detail = getattr(ex, "stderr", None) or str(ex)
+        print(f"Unable to compute git diff against '{args.base}': {detail.strip()}", file=sys.stderr)
+        return 1
     if not changed:
         print("No changed production .cs files detected; skipping diff complexity gate.")
         return 0

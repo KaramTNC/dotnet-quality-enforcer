@@ -4,34 +4,39 @@ import argparse
 import sys
 from pathlib import Path
 
-
-
 from dotnet_quality_gates.unit_test_conventions import (  # noqa: E402
     DEFAULT_POLICY_PATH,
     DEFAULT_SRC_ROOT,
     DEFAULT_UNIT_TEST_ROOT,
     REPO_ROOT,
     SourceClassInfo,
-    TestClassInfo,
-    TestMethodInfo,
     build_include_to_test_root_map,
     combine_partial_source_classes,
-    compute_brace_depths,
-    find_matching_brace,
-    is_excluded_source_file,
-    iter_cs_files,
     load_default_source_include_roots,
-    mask_comments_and_strings,
-    normalize_region_name,
-    parse_base_types,
-    parse_exposed_methods,
-    parse_regions_and_methods,
     parse_source_classes,
-    parse_targetable_members,
     parse_test_classes,
-    parse_test_method_name,
-    resolve_expected_test_directory,
     validate_conventions,
+)
+from dotnet_quality_gates.unit_test_conventions import (
+    TestClassInfo as TestClassInfo,
+)
+from dotnet_quality_gates.unit_test_conventions import (
+    TestMethodInfo as TestMethodInfo,
+)
+from dotnet_quality_gates.unit_test_conventions import (
+    parse_base_types as parse_base_types,
+)
+from dotnet_quality_gates.unit_test_conventions import (
+    parse_exposed_methods as parse_exposed_methods,
+)
+from dotnet_quality_gates.unit_test_conventions import (
+    parse_regions_and_methods as parse_regions_and_methods,
+)
+from dotnet_quality_gates.unit_test_conventions import (
+    parse_targetable_members as parse_targetable_members,
+)
+from dotnet_quality_gates.unit_test_conventions import (
+    parse_test_method_name as parse_test_method_name,
 )
 
 

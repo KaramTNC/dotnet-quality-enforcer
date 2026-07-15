@@ -6,7 +6,6 @@ from pathlib import Path
 from .constants import (
     CLASS_DECLARATION_PATTERN,
     EXPOSED_METHOD_DECLARATION_PATTERN,
-    EXPOSED_PROPERTY_DECLARATION_PATTERN,
     METHOD_DECLARATION_PATTERN,
     REPO_ROOT,
     SKIP_DIR_NAMES,
@@ -16,6 +15,7 @@ from .constants import (
     TEST_ATTRIBUTE_PATTERN,
 )
 from .models import SourceClassInfo, TestClassInfo, TestMethodInfo
+from .roslyn import analyze_csharp_file
 
 
 def iter_cs_files(root: Path) -> list[Path]:
@@ -408,6 +408,16 @@ def parse_source_classes(src_root: Path) -> tuple[list[SourceClassInfo], list[st
         if is_excluded_source_file(file_path):
             continue
 
+        roslyn_analysis = analyze_csharp_file(file_path)
+        if roslyn_analysis is not None:
+            source_classes.extend(roslyn_analysis.source_classes)
+            errors.extend(
+                f"{repo_relative(file_path)}:{diagnostic.line}: "
+                f"Roslyn {diagnostic.diagnostic_id}: {diagnostic.message}"
+                for diagnostic in roslyn_analysis.diagnostics
+            )
+            continue
+
         text = file_path.read_text(encoding="utf-8", errors="ignore")
         masked = mask_comments_and_strings(text)
         brace_depths = compute_brace_depths(masked)
@@ -457,6 +467,16 @@ def parse_test_classes(unit_test_root: Path) -> tuple[list[TestClassInfo], list[
     errors: list[str] = []
 
     for file_path in iter_cs_files(unit_test_root):
+        roslyn_analysis = analyze_csharp_file(file_path)
+        if roslyn_analysis is not None:
+            test_classes.extend(roslyn_analysis.test_classes)
+            errors.extend(
+                f"{repo_relative(file_path)}:{diagnostic.line}: "
+                f"Roslyn {diagnostic.diagnostic_id}: {diagnostic.message}"
+                for diagnostic in roslyn_analysis.diagnostics
+            )
+            continue
+
         text = file_path.read_text(encoding="utf-8", errors="ignore")
         masked = mask_comments_and_strings(text)
 

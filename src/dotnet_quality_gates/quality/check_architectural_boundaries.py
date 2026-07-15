@@ -1,24 +1,22 @@
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-
-
 from dotnet_quality_gates.quality.common import (  # noqa: E402
     is_repo_excluded,
+    load_policy_object,
     load_prefixed_baseline_violations,
+    policy_section,
 )
 from dotnet_quality_gates.unit_test_conventions import (  # noqa: E402
     REPO_ROOT,
     iter_cs_files,
     mask_comments_and_strings,
 )
-
 
 DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
 DEFAULT_INCLUDE_ROOTS = ["src"]
@@ -44,22 +42,10 @@ USING_DIRECTIVE_PATTERN = re.compile(
 
 
 def load_architectural_boundaries_config(policy_path: Path) -> tuple[list[str], list[str], dict[str, list[str]]]:
-    if not policy_path.exists():
-        return list(DEFAULT_INCLUDE_ROOTS), list(DEFAULT_EXCLUDE_GLOBS), dict(DEFAULT_LAYER_RULES)
-
-    try:
-        raw_policy = json.loads(policy_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as ex:
-        print(
-            f"Warning: failed to read policy file '{policy_path}': {ex}. "
-            "Falling back to built-in architectural boundary config.",
-            file=sys.stderr,
-        )
-        return list(DEFAULT_INCLUDE_ROOTS), list(DEFAULT_EXCLUDE_GLOBS), dict(DEFAULT_LAYER_RULES)
-
-    section = raw_policy.get("architectural_boundaries", {})
-    if not isinstance(section, dict):
-        return list(DEFAULT_INCLUDE_ROOTS), list(DEFAULT_EXCLUDE_GLOBS), dict(DEFAULT_LAYER_RULES)
+    section = policy_section(
+        load_policy_object(policy_path, "architectural boundary"),
+        "architectural_boundaries",
+    )
 
     include_roots = _sanitize_string_list(section.get("include_roots", DEFAULT_INCLUDE_ROOTS))
     exclude_globs = _sanitize_string_list(section.get("exclude_globs", DEFAULT_EXCLUDE_GLOBS))

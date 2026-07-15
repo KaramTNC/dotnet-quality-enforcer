@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
-import json
 from pathlib import Path
+from unittest.mock import patch
 
 from dotnet_quality_gates.coverage import check_diff_coverage
 
@@ -26,6 +27,31 @@ diff --git a/src/Bar.cs b/src/Bar.cs
         changed = self.mod.parse_changed_lines(diff_text)
         self.assertEqual(changed["src/Foo.cs"], {2, 3, 12})
         self.assertEqual(changed["src/Bar.cs"], {8, 9, 10})
+
+    def test_parse_changed_lines_ignores_deleted_files(self) -> None:
+        diff_text = """diff --git a/src/Deleted.cs b/src/Deleted.cs
+--- a/src/Deleted.cs
++++ /dev/null
+@@ -1,2 +0,0 @@
+"""
+
+        self.assertEqual(self.mod.parse_changed_lines(diff_text), {})
+
+    def test_load_diff_coverage_config_falls_back_for_non_object_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            policy_path = Path(td) / "policy.json"
+            policy_path.write_text("[]", encoding="utf-8")
+
+            config = self.mod.load_diff_coverage_config(policy_path)
+
+        self.assertEqual(
+            config,
+            (
+                self.mod.DEFAULT_LINE_THRESHOLD,
+                self.mod.DEFAULT_BRANCH_THRESHOLD,
+                self.mod.DEFAULT_MAX_FILES_FOR_GATE,
+            ),
+        )
 
     def test_parse_coverage_uses_max_hits_per_line(self) -> None:
         cobertura_xml = """<?xml version="1.0"?>
@@ -133,6 +159,52 @@ diff --git a/src/Bar.cs b/src/Bar.cs
 
         self.assertEqual(coverage["src/Foo.cs"][10], (1, 2))
         self.assertNotIn(11, coverage["src/Foo.cs"])
+
+    def test_main_fails_when_changed_executable_line_is_missing_from_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source_path = root / "src" / "Foo.cs"
+            source_path.parent.mkdir(parents=True)
+            source_path.write_text(
+                "namespace Example;\n"
+                "public class Foo\n"
+                "{\n"
+                "    public int Bar()\n"
+                "    {\n"
+                "        return 1;\n"
+                "    }\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            coverage_path = root / "coverage.xml"
+            coverage_path.write_text(
+                "<coverage><class filename=\"src/Foo.cs\"><lines>"
+                "<line number=\"4\" hits=\"1\" />"
+                "</lines></class></coverage>",
+                encoding="utf-8",
+            )
+
+            diff_text = "+++ b/src/Foo.cs\n@@ -1,0 +6,1 @@\n"
+            original_root = self.mod.REPO_ROOT
+            self.mod.REPO_ROOT = root
+            try:
+                with patch.object(self.mod, "run_git_diff", return_value=diff_text), patch(
+                    "sys.argv",
+                    [
+                        "check_diff_coverage.py",
+                        "--base",
+                        "HEAD~1",
+                        "--coverage",
+                        str(coverage_path),
+                        "--threshold",
+                        "1.0",
+                    ],
+                ):
+                    result = self.mod.main()
+            finally:
+                self.mod.REPO_ROOT = original_root
+
+        self.assertEqual(result, 1)
 
 
 if __name__ == "__main__":

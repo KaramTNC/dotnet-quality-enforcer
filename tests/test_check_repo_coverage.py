@@ -41,6 +41,15 @@ class CheckRepoCoverageTests(unittest.TestCase):
 
         self.assertEqual(packages, set())
 
+    def test_load_expected_packages_falls_back_for_non_object_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            policy_path = Path(td) / "policy.json"
+            policy_path.write_text("null", encoding="utf-8")
+
+            packages = self.mod.load_expected_packages(policy_path)
+
+        self.assertEqual(packages, set())
+
     def test_parse_merged_cobertura_filters_to_expected_packages(self) -> None:
         cobertura_xml = """<?xml version="1.0"?>
 <coverage>

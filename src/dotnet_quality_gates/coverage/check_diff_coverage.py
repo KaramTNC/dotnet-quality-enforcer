@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
-import json
 import os
 import re
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from collections import defaultdict
+from collections.abc import Mapping
 from pathlib import Path
 
+from dotnet_quality_gates.quality.common import (
+    load_policy_object,
+    parse_changed_lines,
+    policy_section,
+)
 
 REPO_ROOT = Path(os.environ.get("DOTNET_QUALITY_REPO_ROOT", Path.cwd())).resolve()
 DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
@@ -27,20 +32,7 @@ EXECUTABLE_LINE_PATTERN = re.compile(
 
 
 def load_diff_coverage_config(policy_path: Path) -> tuple[float, float | None, int]:
-    if not policy_path.exists():
-        return DEFAULT_LINE_THRESHOLD, DEFAULT_BRANCH_THRESHOLD, DEFAULT_MAX_FILES_FOR_GATE
-
-    try:
-        raw_policy = json.loads(policy_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as ex:
-        print(
-            f"Warning: failed to read policy file '{policy_path}': {ex}. "
-            "Falling back to built-in diff coverage config.",
-            file=sys.stderr,
-        )
-        return DEFAULT_LINE_THRESHOLD, DEFAULT_BRANCH_THRESHOLD, DEFAULT_MAX_FILES_FOR_GATE
-
-    section = raw_policy.get("diff_quality", {})
+    section = policy_section(load_policy_object(policy_path, "diff coverage"), "diff_quality")
     line_threshold = section.get("line_coverage_threshold", DEFAULT_LINE_THRESHOLD)
     branch_threshold = section.get("branch_coverage_threshold", DEFAULT_BRANCH_THRESHOLD)
     max_files = section.get("max_files_for_gate", DEFAULT_MAX_FILES_FOR_GATE)
@@ -73,35 +65,9 @@ def run_git_diff(base: str) -> str:
         check=True,
         text=True,
         capture_output=True,
+        cwd=REPO_ROOT,
     )
     return result.stdout
-
-
-def parse_changed_lines(diff_text: str) -> dict[str, set[int]]:
-    changed: dict[str, set[int]] = defaultdict(set)
-    current_file: str | None = None
-
-    for line in diff_text.splitlines():
-        if line.startswith("+++ b/"):
-            current_file = line[6:]
-            continue
-
-        if not line.startswith("@@") or current_file is None:
-            continue
-
-        header = line.split("@@")[1].strip()
-        new_range = header.split(" ")[1]
-        start_text, _, length_text = new_range[1:].partition(",")
-        start = int(start_text)
-        length = int(length_text) if length_text else 1
-
-        if length == 0:
-            continue
-
-        for line_number in range(start, start + length):
-            changed[current_file].add(line_number)
-
-    return changed
 
 
 def parse_coverage(path: Path) -> dict[str, dict[int, int]]:
@@ -173,7 +139,7 @@ def parse_branch_coverage(path: Path) -> dict[str, dict[int, tuple[int, int]]]:
     return coverage
 
 
-def resolve_coverage_file(file_path: str, coverage: dict[str, dict[int, int]]) -> str | None:
+def resolve_coverage_file(file_path: str, coverage: Mapping[str, object]) -> str | None:
     normalized = file_path.replace("\\", "/")
     if normalized in coverage:
         return normalized
@@ -212,7 +178,7 @@ def is_probably_executable_source_line(line: str) -> bool:
     stripped = line.strip()
     if not stripped:
         return False
-    if stripped in {"{", "}", "};", "};", ");"}:
+    if stripped in {"{", "}", "};", ");"}:
         return False
     if stripped.startswith(("///", "//", "/*", "*", "[", "#", "using ", "namespace ")):
         return False
@@ -272,7 +238,12 @@ def main() -> int:
         print(f"Coverage file not found: {coverage_path}", file=sys.stderr)
         return 1
 
-    changed = parse_changed_lines(run_git_diff(args.base))
+    try:
+        changed = parse_changed_lines(run_git_diff(args.base))
+    except (OSError, subprocess.CalledProcessError) as ex:
+        detail = getattr(ex, "stderr", None) or str(ex)
+        print(f"Unable to compute git diff against '{args.base}': {detail.strip()}", file=sys.stderr)
+        return 1
     if not changed:
         print("No changed production .cs files detected; skipping diff coverage gate.")
         return 0
@@ -284,9 +255,13 @@ def main() -> int:
         )
         return 0
 
-    coverage = parse_coverage(coverage_path)
-    coverage_exclude_filters = load_coverage_exclude_filters(Path(args.filters_file))
-    branch_coverage = parse_branch_coverage(coverage_path) if branch_threshold is not None else {}
+    try:
+        coverage = parse_coverage(coverage_path)
+        coverage_exclude_filters = load_coverage_exclude_filters(Path(args.filters_file))
+        branch_coverage = parse_branch_coverage(coverage_path) if branch_threshold is not None else {}
+    except (OSError, ET.ParseError, KeyError, ValueError) as ex:
+        print(f"Unable to read coverage report '{coverage_path}': {ex}", file=sys.stderr)
+        return 1
     covered_lines = 0
     relevant_lines = 0
     covered_branches = 0
@@ -299,17 +274,17 @@ def main() -> int:
             continue
 
         coverage_key = resolve_coverage_file(file_path, coverage)
-        line_hits = coverage.get(coverage_key, {})
+        line_hits = coverage.get(coverage_key, {}) if coverage_key is not None else {}
         branch_hits = branch_coverage.get(coverage_key, {}) if coverage_key is not None else {}
 
         if coverage_key is None:
-            missing_lines = changed_executable_lines_without_coverage(file_path, lines)
-            if not missing_lines:
+            missing_without_coverage = changed_executable_lines_without_coverage(file_path, lines)
+            if not missing_without_coverage:
                 continue
 
-            relevant_lines += len(missing_lines)
-            preview = ", ".join(str(number) for number in missing_lines[:10])
-            suffix = "..." if len(missing_lines) > 10 else ""
+            relevant_lines += len(missing_without_coverage)
+            preview = ", ".join(str(number) for number in missing_without_coverage[:10])
+            suffix = "..." if len(missing_without_coverage) > 10 else ""
             uncovered_details.append(
                 f"{file_path}: no coverage data for changed executable lines {preview}{suffix}"
             )
@@ -321,9 +296,13 @@ def main() -> int:
         tracked_covered_branches = 0
         missing_lines: list[int] = []
         missing_branches: list[str] = []
+        executable_changed_lines = set(changed_executable_lines_without_coverage(file_path, lines))
 
         for line_number in sorted(lines):
             if line_number not in line_hits:
+                if line_number in executable_changed_lines:
+                    relevant_lines += 1
+                    missing_lines.append(line_number)
                 continue
 
             tracked_lines += 1
@@ -342,6 +321,12 @@ def main() -> int:
                     missing_branches.append(f"{line_number} ({branch_covered}/{branch_total})")
 
         if tracked_lines == 0:
+            if missing_lines:
+                preview = ", ".join(str(number) for number in missing_lines[:10])
+                suffix = "..." if len(missing_lines) > 10 else ""
+                uncovered_details.append(
+                    f"{file_path}: no coverage data for changed executable lines {preview}{suffix}"
+                )
             continue
 
         relevant_lines += tracked_lines

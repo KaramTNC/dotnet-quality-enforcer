@@ -5,19 +5,18 @@ import re
 import sys
 from pathlib import Path
 
-
-
+from dotnet_quality_gates.quality.common import (  # noqa: E402
+    is_repo_excluded,
+    load_prefixed_baseline_violations,
+    load_quality_section_config,
+)
 from dotnet_quality_gates.unit_test_conventions import (  # noqa: E402
     REPO_ROOT,
     compute_brace_depths,
     iter_cs_files,
     mask_comments_and_strings,
 )
-from dotnet_quality_gates.quality.common import (  # noqa: E402
-    is_repo_excluded,
-    load_prefixed_baseline_violations,
-    load_quality_section_config,
-)
+from dotnet_quality_gates.unit_test_conventions.roslyn import analyze_csharp_file  # noqa: E402
 
 TYPE_DECLARATION_PATTERN = re.compile(
     r"\b(?:public|protected|internal|private|file)?\s*"
@@ -52,6 +51,14 @@ def is_excluded(path: Path, exclude_globs: list[str]) -> bool:
 
 
 def parse_top_level_type_declarations(path: Path) -> list[tuple[str, int]]:
+    roslyn_analysis = analyze_csharp_file(path)
+    if roslyn_analysis is not None:
+        return [
+            (name, line)
+            for name, line, kind in roslyn_analysis.type_declarations
+            if kind in {"class", "interface"}
+        ]
+
     text = path.read_text(encoding="utf-8", errors="ignore")
     masked = mask_comments_and_strings(text)
     brace_depths = compute_brace_depths(masked)

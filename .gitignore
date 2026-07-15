@@ -10,6 +10,8 @@ ENV/
 # Build and test output
 build/
 dist/
+**/bin/
+**/obj/
 .coverage
 htmlcov/
 .pytest_cache/
