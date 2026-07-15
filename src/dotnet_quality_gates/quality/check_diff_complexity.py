@@ -10,8 +10,6 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-
-
 from dotnet_quality_gates.coverage.check_diff_coverage import (  # noqa: E402
     parse_changed_lines,
     parse_coverage,
@@ -20,7 +18,6 @@ from dotnet_quality_gates.coverage.check_diff_coverage import (  # noqa: E402
 )
 from dotnet_quality_gates.quality.common import load_policy_object, policy_section  # noqa: E402
 from dotnet_quality_gates.unit_test_conventions import find_matching_brace, mask_comments_and_strings  # noqa: E402
-
 
 REPO_ROOT = Path(os.environ.get("DOTNET_QUALITY_REPO_ROOT", Path.cwd())).resolve()
 DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"

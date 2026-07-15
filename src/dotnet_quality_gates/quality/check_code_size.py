@@ -9,8 +9,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-
-
 from dotnet_quality_gates.quality.common import (  # noqa: E402
     load_policy_object,
     load_prefixed_baseline_violations,
@@ -23,7 +21,6 @@ from dotnet_quality_gates.unit_test_conventions import (  # noqa: E402
     iter_cs_files,
     mask_comments_and_strings,
 )
-
 
 REPO_ROOT = Path(os.environ.get("DOTNET_QUALITY_REPO_ROOT", Path.cwd())).resolve()
 DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"

@@ -29,6 +29,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,10 +37,42 @@ jobs:
           python-version: "3.13"
 
       - name: Install build tooling
-        run: python -m pip install --upgrade pip build
+        run: python -m pip install --upgrade pip build twine
 
       - name: Build wheel and source distribution
         run: python -m build
+
+      - name: Validate distributions
+        run: twine check dist/*
+
+      - name: Verify package version metadata
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import zipfile
+
+          wheels = list(pathlib.Path("dist").glob("*.whl"))
+          if len(wheels) != 1:
+              raise SystemExit(f"Expected exactly one wheel, found {len(wheels)}")
+          print(f"Built {wheels[0].name}")
+          with zipfile.ZipFile(wheels[0]) as archive:
+              metadata = next(
+                  name for name in archive.namelist()
+                  if name.endswith(".dist-info/METADATA")
+              )
+              version_line = next(
+                  line for line in archive.read(metadata).decode().splitlines()
+                  if line.startswith("Version: ")
+              )
+              print(version_line)
+              release_tag = os.environ.get("GITHUB_REF_NAME", "")
+              if release_tag.startswith("v") and version_line != f"Version: {release_tag[1:]}":
+                  raise SystemExit(
+                      f"Package version does not match release tag: {version_line} vs {release_tag}"
+                  )
+          PY
 
       - name: Upload distributions as workflow artifact
         uses: actions/upload-artifact@v4

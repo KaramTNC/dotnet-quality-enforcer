@@ -8,6 +8,7 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from collections import defaultdict
+from collections.abc import Mapping
 from pathlib import Path
 
 from dotnet_quality_gates.quality.common import (
@@ -15,7 +16,6 @@ from dotnet_quality_gates.quality.common import (
     parse_changed_lines,
     policy_section,
 )
-
 
 REPO_ROOT = Path(os.environ.get("DOTNET_QUALITY_REPO_ROOT", Path.cwd())).resolve()
 DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
@@ -139,7 +139,7 @@ def parse_branch_coverage(path: Path) -> dict[str, dict[int, tuple[int, int]]]:
     return coverage
 
 
-def resolve_coverage_file(file_path: str, coverage: dict[str, dict[int, int]]) -> str | None:
+def resolve_coverage_file(file_path: str, coverage: Mapping[str, object]) -> str | None:
     normalized = file_path.replace("\\", "/")
     if normalized in coverage:
         return normalized
@@ -274,17 +274,17 @@ def main() -> int:
             continue
 
         coverage_key = resolve_coverage_file(file_path, coverage)
-        line_hits = coverage.get(coverage_key, {})
+        line_hits = coverage.get(coverage_key, {}) if coverage_key is not None else {}
         branch_hits = branch_coverage.get(coverage_key, {}) if coverage_key is not None else {}
 
         if coverage_key is None:
-            missing_lines = changed_executable_lines_without_coverage(file_path, lines)
-            if not missing_lines:
+            missing_without_coverage = changed_executable_lines_without_coverage(file_path, lines)
+            if not missing_without_coverage:
                 continue
 
-            relevant_lines += len(missing_lines)
-            preview = ", ".join(str(number) for number in missing_lines[:10])
-            suffix = "..." if len(missing_lines) > 10 else ""
+            relevant_lines += len(missing_without_coverage)
+            preview = ", ".join(str(number) for number in missing_without_coverage[:10])
+            suffix = "..." if len(missing_without_coverage) > 10 else ""
             uncovered_details.append(
                 f"{file_path}: no coverage data for changed executable lines {preview}{suffix}"
             )

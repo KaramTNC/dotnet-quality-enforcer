@@ -9,7 +9,6 @@ from pathlib import Path
 
 from dotnet_quality_gates.unit_test_conventions import REPO_ROOT
 
-
 _DIFF_HUNK_PATTERN = re.compile(
     r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<length>\d+))? @@"
 )

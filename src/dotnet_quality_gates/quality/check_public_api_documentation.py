@@ -6,15 +6,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-
-
 from dotnet_quality_gates.quality.common import (  # noqa: E402
     is_repo_excluded,
     load_prefixed_baseline_violations,
     load_quality_section_config,
 )
 from dotnet_quality_gates.unit_test_conventions import REPO_ROOT, iter_cs_files  # noqa: E402
-
 
 DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
 DEFAULT_INCLUDE_ROOTS = ["src"]

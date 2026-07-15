@@ -30,11 +30,36 @@ Run `dotnet-quality --help` for all available checks.
 ## Development
 
 ```bash
-python -m pip install -e .
+python -m pip install -e ".[dev]"
 python -m unittest discover -s tests -p "test_*.py"
+ruff check src tests
+mypy src
 ```
 
 The package targets Python 3.10 and newer and has no runtime dependencies outside the standard library.
+
+The package version is derived from Git tags with `setuptools-scm`. A tag such as
+`v0.2.0` produces version `0.2.0`; source checkouts without package metadata use
+`0.0.0+unknown`.
+
+### Optional Roslyn parsing
+
+The default parser has no .NET runtime dependency. For modern C# syntax, build
+the optional Roslyn helper and configure the command before running a gate:
+
+```bash
+dotnet build tools/roslyn-analyzer/DotnetQualityRoslyn.csproj -c Release
+export DOTNET_QUALITY_ROSLYN_COMMAND="dotnet tools/roslyn-analyzer/bin/Release/net8.0/DotnetQualityRoslyn.dll"
+```
+
+When configured, source type and unit-test convention analysis uses Roslyn. If
+the helper is unavailable or returns an error, the built-in parser is used.
+
+For automation, the top-level CLI can return a structured result envelope:
+
+```bash
+dotnet-quality --output json code-size --scope full
+```
 
 ## CI/CD
 

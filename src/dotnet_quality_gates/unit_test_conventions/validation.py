@@ -7,7 +7,6 @@ from .constants import REPO_ROOT
 from .models import SourceClassInfo, TestClassInfo
 from .parsing import parse_test_method_name
 
-
 COMPANION_TEST_SUFFIXES = (
     "Additional",
     "Advanced",

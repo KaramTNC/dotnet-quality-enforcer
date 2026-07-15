@@ -8,7 +8,6 @@ from pathlib import Path
 
 from dotnet_quality_gates.quality.common import load_policy_object, policy_section
 
-
 REPO_ROOT = Path(os.environ.get("DOTNET_QUALITY_REPO_ROOT", Path.cwd())).resolve()
 DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
 

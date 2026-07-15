@@ -6,12 +6,10 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-
-
 from dotnet_quality_gates.quality.common import (  # noqa: E402
     is_repo_excluded,
-    load_prefixed_baseline_violations,
     load_policy_object,
+    load_prefixed_baseline_violations,
     policy_section,
 )
 from dotnet_quality_gates.unit_test_conventions import (  # noqa: E402
@@ -19,7 +17,6 @@ from dotnet_quality_gates.unit_test_conventions import (  # noqa: E402
     iter_cs_files,
     mask_comments_and_strings,
 )
-
 
 DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
 DEFAULT_INCLUDE_ROOTS = ["src"]

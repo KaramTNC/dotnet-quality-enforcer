@@ -33,7 +33,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install package
-        run: python -m pip install --upgrade pip && python -m pip install .
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
 
       - name: Run unit tests
         run: python -m unittest discover -s tests -p "test_*.py"
@@ -43,3 +43,45 @@ jobs:
 
       - name: Verify command-line entry point
         run: dotnet-quality --help
+
+  static-analysis:
+    name: Ruff and mypy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install development dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: Run Ruff
+        run: ruff check src tests
+
+      - name: Run mypy
+        run: mypy src
+
+  roslyn-helper:
+    name: Build Roslyn helper
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.x"
+
+      - name: Build Roslyn helper
+        run: dotnet build tools/roslyn-analyzer/DotnetQualityRoslyn.csproj --configuration Release --nologo
+
+      - name: Smoke test Roslyn helper
+        run: |
+          dotnet tools/roslyn-analyzer/bin/Release/net8.0/DotnetQualityRoslyn.dll \
+            --file tools/roslyn-analyzer/Program.cs > roslyn-output.json
+          python -c "import json; payload=json.load(open('roslyn-output.json')); assert 'types' in payload and 'diagnostics' in payload"

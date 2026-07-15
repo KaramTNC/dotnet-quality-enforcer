@@ -4,7 +4,6 @@ import os
 import re
 from pathlib import Path
 
-
 REPO_ROOT = Path(os.environ.get("DOTNET_QUALITY_REPO_ROOT", Path.cwd())).resolve()
 DEFAULT_POLICY_PATH = REPO_ROOT / ".quality" / "quality_policy.json"
 DEFAULT_SRC_ROOT = REPO_ROOT / "src"

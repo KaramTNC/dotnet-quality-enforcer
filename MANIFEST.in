@@ -1,0 +1,2 @@
+include tools/roslyn-analyzer/*.cs
+include tools/roslyn-analyzer/*.csproj
