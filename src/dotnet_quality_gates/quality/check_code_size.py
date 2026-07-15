@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import bisect
-import json
 import os
 import re
 import subprocess
@@ -12,7 +11,13 @@ from pathlib import Path
 
 
 
-from dotnet_quality_gates.quality.common import load_prefixed_baseline_violations, load_quality_section_config  # noqa: E402
+from dotnet_quality_gates.quality.common import (  # noqa: E402
+    load_policy_object,
+    load_prefixed_baseline_violations,
+    parse_changed_lines,
+    policy_section,
+    sanitize_string_list,
+)
 from dotnet_quality_gates.unit_test_conventions import (  # noqa: E402
     find_matching_brace,
     iter_cs_files,
@@ -111,27 +116,13 @@ class CodeSizeMetric:
 
 
 def load_code_size_config(policy_path: Path) -> CodeSizeConfig:
-    include_roots, exclude_globs = load_quality_section_config(
-        policy_path=policy_path,
-        section_name="code_size",
-        default_include_roots=DEFAULT_INCLUDE_ROOTS,
-        default_exclude_globs=DEFAULT_EXCLUDE_GLOBS,
-        warning_context="code size",
-    )
-
-    section: dict[str, object] = {}
-    if policy_path.exists():
-        try:
-            raw_policy = json.loads(policy_path.read_text(encoding="utf-8"))
-            raw_section = raw_policy.get("code_size", {})
-            if isinstance(raw_section, dict):
-                section = raw_section
-        except (OSError, json.JSONDecodeError):
-            section = {}
+    section = policy_section(load_policy_object(policy_path, "code size"), "code_size")
+    include_roots = sanitize_string_list(section.get("include_roots", DEFAULT_INCLUDE_ROOTS))
+    exclude_globs = sanitize_string_list(section.get("exclude_globs", DEFAULT_EXCLUDE_GLOBS))
 
     return CodeSizeConfig(
-        include_roots=include_roots,
-        exclude_globs=exclude_globs,
+        include_roots=include_roots or list(DEFAULT_INCLUDE_ROOTS),
+        exclude_globs=exclude_globs or list(DEFAULT_EXCLUDE_GLOBS),
         method_warn_lines=sanitize_positive_int(
             section.get("method_warn_lines"),
             DEFAULT_METHOD_WARN_LINES,
@@ -466,7 +457,10 @@ def metric_intersects_changed_lines(
 
 
 def is_excluded(path: Path, exclude_globs: list[str], repo_root: Path = REPO_ROOT) -> bool:
-    relative_path = path.relative_to(repo_root)
+    try:
+        relative_path = path.resolve().relative_to(repo_root.resolve())
+    except ValueError:
+        return False
     return any(relative_path.match(pattern) for pattern in exclude_globs)
 
 
@@ -502,36 +496,9 @@ def run_git_diff(base: str) -> str:
         check=True,
         text=True,
         capture_output=True,
+        cwd=REPO_ROOT,
     )
     return result.stdout
-
-
-def parse_changed_lines(diff_text: str) -> dict[str, set[int]]:
-    changed: dict[str, set[int]] = {}
-    current_file: str | None = None
-
-    for line in diff_text.splitlines():
-        if line.startswith("+++ b/"):
-            current_file = line[6:]
-            changed.setdefault(current_file, set())
-            continue
-
-        if not line.startswith("@@") or current_file is None:
-            continue
-
-        header = line.split("@@")[1].strip()
-        new_range = header.split(" ")[1]
-        start_text, _, length_text = new_range[1:].partition(",")
-        start = int(start_text)
-        length = int(length_text) if length_text else 1
-
-        if length == 0:
-            continue
-
-        for line_number in range(start, start + length):
-            changed[current_file].add(line_number)
-
-    return changed
 
 
 def collect_metrics_for_file(path: Path, config: CodeSizeConfig) -> list[CodeSizeMetric]:
@@ -629,11 +596,16 @@ def main() -> int:
         return 1
 
     config = load_code_size_config(Path(args.policy_path))
-    metrics = (
-        collect_full_metrics(config)
-        if args.scope == "full"
-        else collect_diff_metrics(args.base, config)
-    )
+    try:
+        metrics = (
+            collect_full_metrics(config)
+            if args.scope == "full"
+            else collect_diff_metrics(args.base, config)
+        )
+    except (OSError, subprocess.CalledProcessError, ValueError) as ex:
+        detail = getattr(ex, "stderr", None) or str(ex)
+        print(f"Code size check could not inspect the repository: {detail.strip()}", file=sys.stderr)
+        return 1
     failures, warnings = split_violations(metrics)
     baseline_violations = load_prefixed_baseline_violations(
         Path(args.baseline_path),

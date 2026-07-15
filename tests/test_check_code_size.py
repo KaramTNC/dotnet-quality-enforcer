@@ -46,6 +46,14 @@ class CheckCodeSizeTests(unittest.TestCase):
         self.assertEqual(config.file_warn_lines, 250)
         self.assertEqual(config.file_max_lines, 400)
 
+    def test_is_excluded_returns_false_for_path_outside_repository(self) -> None:
+        self.assertFalse(
+            self.mod.is_excluded(
+                Path(tempfile.gettempdir()) / "outside.cs",
+                ["**/*.cs"],
+            )
+        )
+
     def test_canonicalize_baseline_violation_ignores_line_counts_and_member_location(self) -> None:
         self.assertEqual(
             self.mod.canonicalize_baseline_violation(

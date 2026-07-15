@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sys
 from pathlib import Path
+
+from dotnet_quality_gates.quality.common import load_policy_object, policy_section
 
 
 REPO_ROOT = Path(os.environ.get("DOTNET_QUALITY_REPO_ROOT", Path.cwd())).resolve()
@@ -43,22 +44,10 @@ def load_project_mappings(policy_path: Path) -> dict[str, list[str]]:
     and mapped source directories still exist, which keeps stale removed
     projects from becoming permanent CI failures.
     """
-    if not policy_path.exists():
-        return {}
-
-    try:
-        raw_policy = json.loads(policy_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as ex:
-        print(
-            f"Warning: failed to read policy file '{policy_path}': {ex}. "
-            "Falling back to discovered project mappings only.",
-            file=sys.stderr,
-        )
-        return {}
-
-    test_architecture = raw_policy.get("test_architecture", {})
-    if not isinstance(test_architecture, dict):
-        return {}
+    test_architecture = policy_section(
+        load_policy_object(policy_path, "test architecture"),
+        "test_architecture",
+    )
 
     mappings = test_architecture.get("additional_project_mappings")
     if mappings is None:

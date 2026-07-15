@@ -21,6 +21,14 @@ def load_default_source_include_roots(policy_path: Path) -> list[str]:
         )
         return list(DEFAULT_SOURCE_INCLUDE_ROOTS)
 
+    if not isinstance(raw_policy, dict):
+        print(
+            "Warning: policy file must contain a JSON object. "
+            "Falling back to built-in source include roots.",
+            file=sys.stderr,
+        )
+        return list(DEFAULT_SOURCE_INCLUDE_ROOTS)
+
     section = raw_policy.get("test_conventions")
     if not isinstance(section, dict):
         section = raw_policy.get("unit_test_conventions", {})
