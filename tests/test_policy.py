@@ -24,6 +24,13 @@ class PolicyValidationTests(unittest.TestCase):
             )
             validate_policy_file(path)
 
+    def test_allows_unlimited_diff_gate_file_count(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "quality_policy.json"
+            path.write_text('{"diff_quality": {"max_files_for_gate": null}}', encoding="utf-8")
+
+            validate_policy_file(path)
+
     def test_reports_the_exact_invalid_policy_key(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "quality_policy.json"
