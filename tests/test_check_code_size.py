@@ -125,6 +125,33 @@ public sealed class Example
         self.assertEqual(types[0].name, "class Example")
         self.assertEqual(types[0].line_count, 6)
 
+    def test_file_metric_excludes_xml_documentation_comments(self) -> None:
+        config = self.mod.CodeSizeConfig(
+            include_roots=["src"],
+            exclude_globs=[],
+            method_warn_lines=40,
+            method_max_lines=60,
+            type_warn_lines=250,
+            type_max_lines=350,
+            file_warn_lines=300,
+            file_max_lines=450,
+        )
+        text = """/// <summary>
+/// A documented type.
+/// </summary>
+public sealed class Example
+{
+    /**
+     * A documented member.
+     */
+    public void Run() { }
+}
+"""
+
+        metric = self.mod.file_metric("src/Example.cs", text, config)
+
+        self.assertEqual(metric.line_count, 4)
+
     def test_parse_methods_ignores_attribute_arguments_before_type_body(self) -> None:
         config = self.mod.CodeSizeConfig(
             include_roots=["src"],
