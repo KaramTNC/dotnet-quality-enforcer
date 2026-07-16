@@ -1,0 +1,28 @@
+name: .NET quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Run .NET Quality Enforcer
+        id: quality
+        uses: KaramTNC/dotnet-quality-enforcer@v0
+        with:
+          command: code-size
+          arguments: --scope full
+          policy-path: .quality/quality_policy.json
+
+      - name: Print violations
+        if: steps.quality.outputs.status == 'failed'
+        run: echo '${{ steps.quality.outputs.violations }}'

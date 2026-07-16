@@ -2,9 +2,12 @@
 
 [![CI](https://github.com/KaramTNC/dotnet-quality-enforcer/actions/workflows/ci.yml/badge.svg)](https://github.com/KaramTNC/dotnet-quality-enforcer/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/KaramTNC/dotnet-quality-enforcer)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/KaramTNC/dotnet-quality-enforcer?sort=semver)](https://github.com/KaramTNC/dotnet-quality-enforcer/releases/latest)
 [![GitHub release downloads](https://img.shields.io/github/downloads/KaramTNC/dotnet-quality-enforcer/total.svg?label=GitHub%20release%20downloads)](https://github.com/KaramTNC/dotnet-quality-enforcer/releases)
 
 Installable, configuration-driven quality gates for C# and .NET repositories.
+
+This project is pre-1.0 and welcomes feedback from teams trying incremental quality enforcement in real repositories. The latest release is shown by the badge above.
 
 ## What it does
 
@@ -68,14 +71,16 @@ This repository can be used directly as a cross-platform composite action. Pin c
 
 ```yaml
 steps:
-  - uses: actions/checkout@v4
+  - uses: actions/checkout@v7
   - id: quality
-    uses: KaramTNC/dotnet-quality-enforcer@v1
+    uses: KaramTNC/dotnet-quality-enforcer@v0
     with:
       command: code-size
       arguments: --scope full
       parser: auto
 ```
+
+The `v0` compatibility tag tracks the latest 0.x release. For production workflows, replace it with the release you have reviewed or an immutable commit SHA.
 
 The action installs the package, runs the selected gate, and exposes `result`, `status`, `returncode`, `violations`, and `warnings` outputs. Set `install-roslyn: true` to install the .NET 8 SDK and build the bundled Roslyn helper before running a Roslyn-enabled gate. The `coverage-report` command still requires ReportGenerator to be available on the runner.
 
@@ -99,11 +104,21 @@ cd dotnet-quality-enforcer
 python -m pip install .
 ```
 
+The versioned release workflow also supports publishing the package to PyPI through trusted publishing. Once the repository's `pypi` environment is connected to a PyPI trusted publisher, install the CLI with:
+
+```bash
+python -m pip install dotnet-quality-gates
+```
+
+The one-time PyPI trusted-publisher configuration should use owner `KaramTNC`, repository `dotnet-quality-enforcer`, workflow `package.yml`, and environment `pypi`. The workflow uses short-lived OIDC credentials; no PyPI token is stored in the repository.
+
 For local development, install the development tools as well:
 
 ```bash
 python -m pip install -e ".[dev]"
 ```
+
+For a copyable GitHub Actions workflow and starter policy, see [`examples/starter`](examples/starter).
 
 ## Usage
 
@@ -181,18 +196,15 @@ mypy src action_runner.py
 pip-audit .
 ```
 
-Pull requests targeting `staging` or `main` run the test suite on Python 3.10 through 3.13, plus static analysis and a Roslyn helper smoke test. Successful pushes to `main` build distributions and create a GitHub Release named `main-<commit-sha>`. Version tags such as `v0.2.0` create versioned releases. The release workflow requires GitHub Actions permission to write repository contents.
+Pull requests targeting `staging` or `main` run the test suite on Python 3.10 through 3.13, plus static analysis and a Roslyn helper smoke test. Successful pushes to `main` build distributions and create a GitHub Release named `main-<commit-sha>`. Version tags matching `vX.Y.Z` create versioned releases and publish the Python package when PyPI trusted publishing is configured. The release workflow requires GitHub Actions permission to write repository contents.
 
 The package version is derived from Git tags with `setuptools-scm`: a tag such as `v0.2.0` produces version `0.2.0`. Source checkouts without package metadata use `0.0.0+unknown`.
 
 ## Contributing
 
-1. Create a branch from `staging`.
-2. Make the change and add or update tests.
-3. Run the development checks locally.
-4. Open a pull request targeting `staging` and describe the user-facing impact.
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Issues and feature requests can be submitted through the [GitHub issue tracker](https://github.com/KaramTNC/dotnet-quality-enforcer/issues), and usage questions can be asked in [Discussions](https://github.com/KaramTNC/dotnet-quality-enforcer/discussions).
 
-Issues and feature requests can be submitted through the [GitHub issue tracker](https://github.com/KaramTNC/dotnet-quality-enforcer/issues).
+Security issues should follow the process in [SECURITY.md](SECURITY.md).
 
 ## License
 

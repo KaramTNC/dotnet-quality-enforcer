@@ -12,6 +12,12 @@ license = "MIT"
 authors = [{ name = "KaramTNC" }]
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/KaramTNC/dotnet-quality-enforcer"
+Repository = "https://github.com/KaramTNC/dotnet-quality-enforcer"
+Issues = "https://github.com/KaramTNC/dotnet-quality-enforcer/issues"
+Changelog = "https://github.com/KaramTNC/dotnet-quality-enforcer/releases"
+
 [project.optional-dependencies]
 dev = [
     "mypy>=1.13",
