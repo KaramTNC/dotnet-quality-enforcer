@@ -164,8 +164,36 @@ def line_for_index(starts: list[int], index: int) -> int:
     return bisect.bisect_right(starts, index)
 
 
-def count_lines(text: str) -> int:
-    return len(text.splitlines())
+def count_file_lines(text: str) -> int:
+    """Count physical file lines while excluding XML documentation comments."""
+    line_count = 0
+    in_documentation_block = False
+
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if in_documentation_block:
+            closing_index = stripped.find("*/")
+            if closing_index < 0:
+                continue
+            in_documentation_block = False
+            if stripped[closing_index + 2 :].strip():
+                line_count += 1
+            continue
+
+        if stripped.startswith("///"):
+            continue
+        if stripped.startswith("/**"):
+            closing_index = stripped.find("*/", 3)
+            if closing_index < 0:
+                in_documentation_block = True
+                continue
+            if stripped[closing_index + 2 :].strip():
+                line_count += 1
+            continue
+
+        line_count += 1
+
+    return line_count
 
 
 def header_start(masked_text: str, opening_brace_index: int) -> int:
@@ -422,7 +450,7 @@ def aggregate_partial_type_metrics(metrics: list[CodeSizeMetric]) -> list[CodeSi
 
 
 def file_metric(path: str, text: str, config: CodeSizeConfig) -> CodeSizeMetric:
-    line_count = count_lines(text)
+    line_count = count_file_lines(text)
     return CodeSizeMetric(
         kind="file",
         path=path,

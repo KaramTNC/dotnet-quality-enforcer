@@ -30,7 +30,7 @@ The enforcer combines numeric maintainability metrics with structural quality ru
 
 | Area | What is measured or enforced | Built-in default |
 | --- | --- | --- |
-| Code size | Physical lines in each method, type, and source file; partial types are also aggregated across files. | Warn at 40/250/300 lines and fail at 60/350/450 lines for methods/types/files respectively. |
+| Code size | Physical lines in each method, type, and source file, excluding XML documentation comment lines from source-file totals; partial types are also aggregated across files. | Warn at 40/250/300 lines and fail at 60/350/450 lines for methods/types/files respectively. |
 | Diff complexity | Changed production methods are checked for cyclomatic complexity, cognitive complexity, and CRAP score. | Cyclomatic <= 10, cognitive <= 10, CRAP <= 30.00. No file-count limit by default. |
 | CRAP score | Combines cyclomatic complexity with method coverage: `complexity² × (1 - coverage)³ + complexity`. Higher complexity and lower coverage produce a higher risk score. | Maximum 30.00. Coverage comes from the supplied Cobertura report. |
 | Diff coverage | Executable changed-line coverage and, when configured, changed-branch coverage. | Line coverage >= 80%; branch coverage is optional. No file-count limit by default. |
