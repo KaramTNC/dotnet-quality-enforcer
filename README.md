@@ -26,7 +26,7 @@ The checks run against an explicit repository working directory. A policy file i
 
 ## Quality metrics and rules
 
-The enforcer combines numeric maintainability metrics with structural quality rules. Thresholds below are built-in defaults and can be overridden in `.quality/quality_policy.json`.
+The enforcer combines numeric maintainability metrics with structural quality rules. Thresholds below are built-in defaults and can be overridden in `.quality/quality_policy.json`. Configured expected coverage packages must be present in the merged report; missing aliases fail the repository coverage gate.
 
 | Area | What is measured or enforced | Built-in default |
 | --- | --- | --- |

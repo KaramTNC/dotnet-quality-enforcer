@@ -252,18 +252,14 @@ def main() -> int:
         and overall_branch_ratio + 1e-9 < branch_threshold
     )
 
-    if not line_failed and not branch_failed:
+    if not line_failed and not branch_failed and not missing_packages:
         print("Repo coverage gate passed.")
-        if missing_packages:
-            print("Coverage note: expected package aliases not present in merged report:")
-            for name in missing_packages:
-                print(f" - {name}")
         return 0
 
     print("Repo coverage gate failed.", file=sys.stderr)
 
     if missing_packages:
-        print("Coverage note: expected package aliases not present in merged report:", file=sys.stderr)
+        print("Expected package aliases were not present in the merged report:", file=sys.stderr)
         for name in missing_packages:
             print(f" - {name}", file=sys.stderr)
 

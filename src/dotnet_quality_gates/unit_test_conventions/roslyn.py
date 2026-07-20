@@ -4,6 +4,7 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -158,6 +159,10 @@ def analyze_csharp_files(paths: list[Path], mode: str | None = None) -> dict[Pat
                 if selected_mode == "roslyn":
                     detail = completed.stderr.strip() or f"helper exited with code {completed.returncode}"
                     raise RoslynError(f"Roslyn helper failed: {detail}")
+                print(
+                    "Warning: Roslyn helper failed; falling back to the built-in C# parser.",
+                    file=sys.stderr,
+                )
                 return {}
 
             payload = json.loads(completed.stdout)
@@ -180,10 +185,19 @@ def analyze_csharp_files(paths: list[Path], mode: str | None = None) -> dict[Pat
     except subprocess.TimeoutExpired as ex:
         if selected_mode == "roslyn":
             raise RoslynError("Roslyn helper timed out") from ex
+        print(
+            "Warning: Roslyn helper timed out; falling back to the built-in C# parser.",
+            file=sys.stderr,
+        )
         return {}
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as ex:
         if selected_mode == "roslyn":
             raise RoslynError(f"Roslyn helper returned invalid output: {ex}") from ex
+        print(
+            f"Warning: Roslyn helper returned invalid output ({ex}); "
+            "falling back to the built-in C# parser.",
+            file=sys.stderr,
+        )
         return {}
 
 
