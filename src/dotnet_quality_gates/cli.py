@@ -12,6 +12,7 @@ from typing import Any
 
 from dotnet_quality_gates.context import PARSER_MODES, ExecutionContext
 from dotnet_quality_gates.policy import PolicyValidationError, validate_policy_file
+from dotnet_quality_gates.reporting import add_result_diagnostics
 
 
 @dataclass(frozen=True)
@@ -231,10 +232,8 @@ def _result_payload(
     stdout: str,
     stderr: str,
 ) -> dict[str, Any]:
-    combined = [*stdout.splitlines(), *stderr.splitlines()]
-    violations = [line.strip()[2:].strip() for line in combined if line.strip().startswith("- ")]
-    warnings = [line.strip() for line in combined if "warning:" in line.lower()]
-    return {
+    warnings = [line.strip() for line in [*stdout.splitlines(), *stderr.splitlines()] if "warning:" in line.lower()]
+    return add_result_diagnostics({
         "schema_version": JSON_SCHEMA_VERSION,
         "command": command,
         "repo_root": str(repo_root),
@@ -243,11 +242,12 @@ def _result_payload(
         "status": "passed" if returncode == 0 else "failed",
         "returncode": returncode,
         "duration_ms": duration_ms,
-        "violations": violations,
+        "violations": [],
+        "blocking_errors": [],
         "warnings": warnings,
         "stdout": stdout,
         "stderr": stderr,
-    }
+    })
 
 
 if __name__ == "__main__":
