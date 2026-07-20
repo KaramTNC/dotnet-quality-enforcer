@@ -401,6 +401,18 @@ public sealed class DiffComplexityScratch
 
         self.assertTrue(any("cognitive complexity 6" in violation for violation in violations))
 
+    def test_parse_coverage_methods_rejects_unsafe_xml_declarations(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            coverage_path = Path(td) / "coverage.xml"
+            coverage_path.write_text(
+                "<!DOCTYPE coverage [<!ENTITY secret 'blocked'>]>"
+                "<coverage>&secret;</coverage>",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "DTD or entity"):
+                self.mod.parse_coverage_methods(coverage_path)
+
 
 if __name__ == "__main__":
     unittest.main()

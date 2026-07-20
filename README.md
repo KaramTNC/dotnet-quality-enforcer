@@ -162,9 +162,9 @@ For automation, request a structured result envelope:
 dotnet-quality --output json code-size --scope full
 ```
 
-The JSON envelope has `schema_version: 1`, a `status`, `returncode`, `violations`, normalized `blocking_errors`, `warnings`, repository metadata, and the original `stdout`/`stderr` for compatibility. `blocking_errors` is the concise list to display when a gate blocks the build; `violations` remains available for consumers that need the legacy extracted detail list.
+The JSON envelope has `schema_version: 1`, a `status`, `returncode`, `violations`, normalized `blocking_errors`, `warnings`, repository metadata, and the original `stdout`/`stderr` for compatibility. `blocking_errors` is the concise list to display when a gate blocks the build; `violations` remains available for consumers that need the legacy extracted detail list. Policy validation is strict: unknown sections and keys are rejected so a misspelled setting cannot silently fall back to a default.
 
-Most commands use `.quality/quality_policy.json` by default when it exists. The top-level command validates known policy keys before starting a gate and reports the exact invalid key. Baseline files contain known violations that are intentionally accepted by the consuming repository; keep those files in the consuming repository rather than in this package.
+Most commands use `.quality/quality_policy.json` by default when it exists. The top-level command validates policy structure and value types before starting a gate and reports the exact invalid key. Baseline files contain known violations that are intentionally accepted by the consuming repository; keep those files in the consuming repository rather than in this package.
 
 The top-level options also support `--timeout SECONDS` for external tools and `--parser auto|python|roslyn`. The default `auto` mode uses Roslyn only when configured; `python` forces the dependency-free parser, and `roslyn` fails if the helper is unavailable or cannot analyze a file.
 
@@ -177,7 +177,7 @@ dotnet build tools/roslyn-analyzer/DotnetQualityRoslyn.csproj -c Release
 export DOTNET_QUALITY_ROSLYN_COMMAND="dotnet tools/roslyn-analyzer/bin/Release/net8.0/DotnetQualityRoslyn.dll"
 ```
 
-When configured, source-type and unit-test convention analysis uses Roslyn. If the helper is unavailable or returns an error, the built-in parser is used instead.
+When configured, source-type and unit-test convention analysis uses Roslyn. In `auto` mode, an unavailable helper can use the built-in parser; use `roslyn` when a gate must fail rather than degrade to the fallback parser. The fallback parser is dependency-free but should be treated as a compatibility mode for modern C# syntax.
 
 Versioned releases also include a framework-dependent Roslyn helper archive. It still requires the .NET 8 runtime, but avoids rebuilding the helper locally. Release assets include SHA-256 checksums, an SBOM, build metadata, and GitHub artifact provenance.
 
@@ -190,11 +190,14 @@ The badge at the top of this page tracks downloads of the wheel and source-distr
 Run the local checks with:
 
 ```bash
-python -m unittest discover -s tests -p "test_*.py"
+python -m coverage run -m unittest discover -s tests -p "test_*.py"
+python -m coverage report
 ruff check src tests action_runner.py
 mypy src action_runner.py
 pip-audit .
 ```
+
+The test suite also includes cross-platform action argument, policy-validation, coverage, XML-input, and JSON-output contract checks. Run the Roslyn build locally when changing the helper or parser integration.
 
 Pull requests targeting `staging` or `main` run the test suite on Python 3.10 through 3.13, plus static analysis and a Roslyn helper smoke test. Successful pushes to `main` build distributions and create a GitHub Release named `main-<commit-sha>`. Version tags matching `vX.Y.Z` create versioned releases and publish the Python package when PyPI trusted publishing is configured. The release workflow requires GitHub Actions permission to write repository contents.
 

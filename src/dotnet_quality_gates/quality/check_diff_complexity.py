@@ -13,6 +13,7 @@ from dotnet_quality_gates.context import current_context
 from dotnet_quality_gates.coverage.check_diff_coverage import (  # noqa: E402
     parse_changed_lines,
     parse_coverage,
+    parse_safe_xml,
     resolve_coverage_file,
     run_git_diff,
 )
@@ -428,7 +429,7 @@ def parse_coverage_methods(coverage_path: Path) -> dict[str, list[MethodMetric]]
         raise FileNotFoundError(f"Coverage file not found: {coverage_path}")
 
     try:
-        root = ET.parse(coverage_path).getroot()
+        root = parse_safe_xml(coverage_path)
     except ET.ParseError as ex:
         raise ValueError(f"Failed to parse coverage file '{coverage_path}': {ex}") from ex
 

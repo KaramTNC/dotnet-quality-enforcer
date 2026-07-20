@@ -63,33 +63,28 @@ jobs:
       - name: Generate Roslyn helper SBOM
         shell: bash
         run: |
-          dotnet list tools/roslyn-analyzer/DotnetQualityRoslyn.csproj package \
-            --include-transitive \
-            --format json > roslyn-package-list.json
           python - <<'PY'
           import json
           from pathlib import Path
           from urllib.parse import quote
           from uuid import uuid4
 
-          inventory = json.loads(Path("roslyn-package-list.json").read_text(encoding="utf-8"))
+          assets_path = Path("tools/roslyn-analyzer/obj/project.assets.json")
+          assets = json.loads(assets_path.read_text(encoding="utf-8"))
           packages = {}
-          for project in inventory.get("projects", []):
-              for framework in project.get("frameworks", []):
-                  for package in framework.get("topLevelPackages", []) + framework.get(
-                      "transitivePackages", []
-                  ):
-                      package_id = package.get("id")
-                      version = package.get("resolvedVersion")
-                      if package_id and version:
-                          packages[(package_id, version)] = {
-                              "type": "library",
-                              "bom-ref": f"pkg:nuget/{quote(package_id, safe='.-_')}@{version}",
-                              "name": package_id,
-                              "version": version,
-                              "purl": f"pkg:nuget/{quote(package_id, safe='.-_')}@{version}",
-                              "scope": "required",
-                          }
+          for library in assets.get("libraries", {}):
+              package_id, separator, version = library.partition("/")
+              if not separator or not package_id or not version:
+                  continue
+              purl = f"pkg:nuget/{quote(package_id, safe='.-_')}@{quote(version, safe='.-_')}"
+              packages[library] = {
+                  "type": "library",
+                  "bom-ref": purl,
+                  "name": package_id,
+                  "version": version,
+                  "purl": purl,
+                  "scope": "required",
+              }
 
           bom = {
               "bomFormat": "CycloneDX",
@@ -108,7 +103,6 @@ jobs:
               json.dumps(bom, indent=2) + "\n", encoding="utf-8"
           )
           PY
-          rm roslyn-package-list.json
 
       - name: Validate distributions
         run: twine check dist/*
