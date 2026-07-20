@@ -7,13 +7,87 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
-from typing import Mapping
+from typing import Mapping, TextIO
 
 from dotnet_quality_gates.reporting import add_result_diagnostics, console_summary, markdown_summary
 
 
 def parse_arguments(value: str) -> list[str]:
-    return shlex.split(value, posix=os.name != "nt") if value.strip() else []
+    if not value.strip():
+        return []
+    return _split_windows_command_line(value) if os.name == "nt" else shlex.split(value)
+
+
+def _split_windows_command_line(value: str) -> list[str]:
+    """Split a Windows command line using Windows quoting and backslash rules."""
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            argc = ctypes.c_int()
+            shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+            shell32.CommandLineToArgvW.argtypes = [
+                ctypes.c_wchar_p,
+                ctypes.POINTER(ctypes.c_int),
+            ]
+            shell32.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+            kernel32.LocalFree.restype = ctypes.c_void_p
+            argv = shell32.CommandLineToArgvW(value, ctypes.byref(argc))
+            if not argv:
+                raise OSError("CommandLineToArgvW failed")
+            try:
+                return [argv[index] for index in range(argc.value)]
+            finally:
+                kernel32.LocalFree(argv)
+        except (AttributeError, OSError, TypeError):
+            pass
+
+    arguments: list[str] = []
+    current: list[str] = []
+    in_quotes = False
+    argument_started = False
+    index = 0
+    while index < len(value):
+        character = value[index]
+        if character in " \t" and not in_quotes:
+            if argument_started:
+                arguments.append("".join(current))
+                current = []
+                argument_started = False
+            index += 1
+            continue
+        if character == "\\":
+            start = index
+            while index < len(value) and value[index] == "\\":
+                index += 1
+            slash_count = index - start
+            if index < len(value) and value[index] == '"':
+                current.extend("\\" * (slash_count // 2))
+                argument_started = True
+                if slash_count % 2:
+                    current.append('"')
+                    index += 1
+                else:
+                    in_quotes = not in_quotes
+                    index += 1
+            else:
+                current.extend("\\" * slash_count)
+                argument_started = True
+            continue
+        if character == '"':
+            in_quotes = not in_quotes
+            argument_started = True
+            index += 1
+            continue
+        current.append(character)
+        argument_started = True
+        index += 1
+
+    if argument_started:
+        arguments.append("".join(current))
+    return arguments
 
 
 def build_command(inputs: Mapping[str, str], action_path: str) -> list[str]:
@@ -53,6 +127,17 @@ def set_output(name: str, value: str) -> None:
     delimiter = f"DOTNET_QUALITY_{uuid.uuid4().hex}"
     with open(output_path, "a", encoding="utf-8", newline="\n") as output:
         output.write(f"{name}<<{delimiter}\n{value}\n{delimiter}\n")
+
+
+def _print_raw_log(group_name: str, value: str, stream: TextIO) -> None:
+    token = f"DOTNET_QUALITY_{uuid.uuid4().hex}"
+    print(f"::group::{group_name}", file=stream)
+    print(f"::stop-commands::{token}", file=stream)
+    print(value, end="", file=stream)
+    if not value.endswith("\n"):
+        print(file=stream)
+    print(f"::{token}::", file=stream)
+    print("::endgroup::", file=stream)
 
 
 def _inputs() -> dict[str, str]:
@@ -110,17 +195,9 @@ def main() -> int:
             print(f"Warning: unable to write GitHub step summary: {ex}", file=sys.stderr)
 
     if payload.get("stdout"):
-        print("::group::Gate details")
-        print(payload["stdout"], end="")
-        if not payload["stdout"].endswith("\n"):
-            print()
-        print("::endgroup::")
+        _print_raw_log("Gate details", str(payload["stdout"]), sys.stdout)
     if payload.get("stderr"):
-        print("::group::Gate diagnostics", file=sys.stderr)
-        print(payload["stderr"], end="", file=sys.stderr)
-        if not payload["stderr"].endswith("\n"):
-            print(file=sys.stderr)
-        print("::endgroup::", file=sys.stderr)
+        _print_raw_log("Gate diagnostics", str(payload["stderr"]), sys.stderr)
     return int(payload.get("returncode", completed.returncode))
 
 
