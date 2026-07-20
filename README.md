@@ -166,7 +166,7 @@ The JSON envelope has `schema_version: 1`, a `status`, `returncode`, `violations
 
 Most commands use `.quality/quality_policy.json` by default when it exists. The top-level command validates policy structure and value types before starting a gate and reports the exact invalid key. Baseline files contain known violations that are intentionally accepted by the consuming repository; keep those files in the consuming repository rather than in this package.
 
-The top-level options also support `--timeout SECONDS` for external tools and `--parser auto|python|roslyn`. The default `auto` mode uses Roslyn only when configured; `python` forces the dependency-free parser, and `roslyn` fails if the helper is unavailable or cannot analyze a file.
+The top-level options also support `--timeout SECONDS` for external tools and `--parser auto|python|roslyn`. The default `auto` mode uses Roslyn only when configured; `python` forces the dependency-free parser, and strict `roslyn` mode currently applies to `source-type-layout` and `test-conventions` and fails if the helper is unavailable or cannot analyze a file.
 
 ## Optional Roslyn parsing
 
