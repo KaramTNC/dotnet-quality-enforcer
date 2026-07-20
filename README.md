@@ -82,14 +82,14 @@ steps:
 
 The `v0` compatibility tag tracks the latest 0.x release. For production workflows, replace it with the release you have reviewed or an immutable commit SHA.
 
-The action installs the package, runs the selected gate, and exposes `result`, `status`, `returncode`, `violations`, and `warnings` outputs. Set `install-roslyn: true` to install the .NET 8 SDK and build the bundled Roslyn helper before running a Roslyn-enabled gate. The `coverage-report` command still requires ReportGenerator to be available on the runner.
+The action installs the package, runs the selected gate, and exposes `result`, `status`, `returncode`, `violations`, `blocking-errors`, and `warnings` outputs. Each invocation also prints a compact status block and appends a Markdown section to `GITHUB_STEP_SUMMARY`. Calling the action once per gate therefore creates one centralized job summary containing the blocking errors from every gate. Set `install-roslyn: true` to install the .NET 8 SDK and build the bundled Roslyn helper before running a Roslyn-enabled gate. The `coverage-report` command still requires ReportGenerator to be available on the runner.
 
 The action's `result` output uses the same `schema_version: 1` JSON envelope as the command-line interface:
 
 ```yaml
 - name: Fail on quality violations
   if: steps.quality.outputs.status == 'failed'
-  run: echo '${{ steps.quality.outputs.violations }}'
+  run: echo '${{ steps.quality.outputs.blocking-errors }}'
 ```
 
 The release-download badge above counts downloads of GitHub Release assets. It does not count workflow executions that reference this repository with `uses:`. GitHub Actions usage is tracked separately through GitHub's Actions usage metrics; no telemetry is sent by this action.
@@ -162,7 +162,7 @@ For automation, request a structured result envelope:
 dotnet-quality --output json code-size --scope full
 ```
 
-The JSON envelope has `schema_version: 1`, a `status`, `returncode`, `violations`, `warnings`, repository metadata, and the original `stdout`/`stderr` for compatibility.
+The JSON envelope has `schema_version: 1`, a `status`, `returncode`, `violations`, normalized `blocking_errors`, `warnings`, repository metadata, and the original `stdout`/`stderr` for compatibility. `blocking_errors` is the concise list to display when a gate blocks the build; `violations` remains available for consumers that need the legacy extracted detail list.
 
 Most commands use `.quality/quality_policy.json` by default when it exists. The top-level command validates known policy keys before starting a gate and reports the exact invalid key. Baseline files contain known violations that are intentionally accepted by the consuming repository; keep those files in the consuming repository rather than in this package.
 

@@ -74,6 +74,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(payload["returncode"], 1)
         self.assertEqual(payload["status"], "failed")
         self.assertIn("--base is required", payload["stderr"])
+        self.assertEqual(payload["blocking_errors"], ["Code size check failed: --base is required when --scope diff."])
 
     def test_json_output_reports_invalid_policy_before_running_a_command(self) -> None:
         with tempfile.TemporaryDirectory() as td:

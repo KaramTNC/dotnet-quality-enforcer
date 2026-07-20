@@ -51,6 +51,8 @@ outputs:
     description: Quality command exit code.
   violations:
     description: JSON array of extracted violation messages.
+  blocking-errors:
+    description: JSON array of normalized errors that block the quality gate.
   warnings:
     description: JSON array of extracted warning messages.
 
