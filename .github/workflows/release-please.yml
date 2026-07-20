@@ -1,0 +1,23 @@
+name: Semantic Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  release-please:
+    name: Prepare semantic release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Create or update release PR
+        uses: googleapis/release-please-action@v5
+        with:
+          release-type: python
+          package-name: dotnet-quality-gates
+          bump-minor-pre-major: true

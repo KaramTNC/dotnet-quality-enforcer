@@ -34,6 +34,16 @@ dotnet build tools/roslyn-analyzer/DotnetQualityRoslyn.csproj -c Release
 
 Please do not include generated `build/`, `dist/`, `bin/`, or `obj/` output in commits.
 
+## Semantic releases
+
+Semantic releases are prepared automatically from `main` using Conventional Commit messages:
+
+- `fix:` produces a patch release.
+- `feat:` produces a minor release.
+- `!` or a `BREAKING CHANGE:` footer produces a breaking release.
+
+The workflow opens or updates a release pull request with the generated changelog and release notes. Merging that release pull request creates the `vX.Y.Z` tag; the existing package workflow then builds the distributions, creates the GitHub release, publishes the Python package, and updates the major compatibility tag. Use `Release-As: X.Y.Z` in a commit body when a specific version must be selected.
+
 ## Adding a quality rule
 
 Add the implementation under the relevant `src/dotnet_quality_gates` package, cover normal and invalid-input behavior in `tests/`, and document policy keys and defaults in the README. Preserve the JSON result envelope and exit-code behavior unless the change explicitly updates that contract.
