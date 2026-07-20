@@ -46,13 +46,16 @@ def _split_windows_command_line(value: str) -> list[str]:
             import ctypes
 
             argc = ctypes.c_int()
-            shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+            win_dll = getattr(ctypes, "WinDLL", None)
+            if not callable(win_dll):
+                raise OSError("WinDLL is unavailable on this platform")
+            shell32 = win_dll("shell32", use_last_error=True)
             shell32.CommandLineToArgvW.argtypes = [
                 ctypes.c_wchar_p,
                 ctypes.POINTER(ctypes.c_int),
             ]
             shell32.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
-            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32 = win_dll("kernel32", use_last_error=True)
             kernel32.LocalFree.argtypes = [ctypes.c_void_p]
             kernel32.LocalFree.restype = ctypes.c_void_p
             argv = shell32.CommandLineToArgvW(value, ctypes.byref(argc))
@@ -62,7 +65,7 @@ def _split_windows_command_line(value: str) -> list[str]:
                 return [argv[index] for index in range(argc.value)]
             finally:
                 kernel32.LocalFree(argv)
-        except (AttributeError, OSError, TypeError):
+        except (AttributeError, ImportError, OSError, TypeError):
             pass
 
     arguments: list[str] = []
