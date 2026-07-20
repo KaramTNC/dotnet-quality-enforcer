@@ -14,6 +14,8 @@ REPO_ROOT = current_context().repo_root
 DEFAULT_POLICY_PATH = current_context().policy_path
 
 DEFAULT_EXPECTED_PACKAGES: set[str] = set()
+MAX_COVERAGE_XML_BYTES = 50 * 1024 * 1024
+UNSAFE_XML_DECLARATION_PATTERN = re.compile(rb"<!\s*(?:DOCTYPE|ENTITY)\b", re.IGNORECASE)
 
 
 def load_expected_packages(policy_path: Path) -> set[str]:
@@ -71,8 +73,7 @@ def parse_merged_cobertura(
     dict[str, tuple[int, int, int, int]],
     dict[str, tuple[int, int, int, int]],
 ]:
-    tree = ET.parse(path)
-    root = tree.getroot()
+    root = parse_safe_xml(path)
 
     class_stats: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0, 0])
     package_stats: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0, 0])
@@ -116,6 +117,22 @@ def parse_merged_cobertura(
             for name, (covered, valid, branch_covered, branch_total) in class_stats.items()
         },
     )
+
+
+def parse_safe_xml(path: Path) -> ET.Element:
+    with path.open("rb") as stream:
+        content = stream.read(MAX_COVERAGE_XML_BYTES + 1)
+
+    if len(content) > MAX_COVERAGE_XML_BYTES:
+        raise ValueError(
+            f"XML report exceeds the {MAX_COVERAGE_XML_BYTES} byte safety limit"
+        )
+    if UNSAFE_XML_DECLARATION_PATTERN.search(content):
+        raise ValueError("XML reports must not contain DTD or entity declarations")
+
+    # ElementTree does not fetch external resources, while the declaration check
+    # above prevents DTD-based entity expansion before parsing untrusted reports.
+    return ET.fromstring(content)
 
 
 def ratio(covered: int, valid: int) -> float:
@@ -235,18 +252,14 @@ def main() -> int:
         and overall_branch_ratio + 1e-9 < branch_threshold
     )
 
-    if not line_failed and not branch_failed:
+    if not line_failed and not branch_failed and not missing_packages:
         print("Repo coverage gate passed.")
-        if missing_packages:
-            print("Coverage note: expected package aliases not present in merged report:")
-            for name in missing_packages:
-                print(f" - {name}")
         return 0
 
     print("Repo coverage gate failed.", file=sys.stderr)
 
     if missing_packages:
-        print("Coverage note: expected package aliases not present in merged report:", file=sys.stderr)
+        print("Expected package aliases were not present in the merged report:", file=sys.stderr)
         for name in missing_packages:
             print(f" - {name}", file=sys.stderr)
 
