@@ -4,6 +4,7 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,7 +36,82 @@ def _configured_command() -> list[str] | None:
     configured = os.environ.get("DOTNET_QUALITY_ROSLYN_COMMAND", "").strip()
     if not configured:
         return None
-    return shlex.split(configured, posix=os.name != "nt")
+    return _split_windows_command_line(configured) if os.name == "nt" else shlex.split(configured)
+
+
+def _split_windows_command_line(value: str) -> list[str]:
+    """Split a Windows command line using Windows quoting and backslash rules."""
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            argc = ctypes.c_int()
+            win_dll = getattr(ctypes, "WinDLL", None)
+            if not callable(win_dll):
+                raise OSError("WinDLL is unavailable on this platform")
+            shell32 = win_dll("shell32", use_last_error=True)
+            shell32.CommandLineToArgvW.argtypes = [
+                ctypes.c_wchar_p,
+                ctypes.POINTER(ctypes.c_int),
+            ]
+            shell32.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
+            kernel32 = win_dll("kernel32", use_last_error=True)
+            kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+            kernel32.LocalFree.restype = ctypes.c_void_p
+            argv = shell32.CommandLineToArgvW(value, ctypes.byref(argc))
+            if not argv:
+                raise OSError("CommandLineToArgvW failed")
+            try:
+                return [argv[index] for index in range(argc.value)]
+            finally:
+                kernel32.LocalFree(argv)
+        except (AttributeError, ImportError, OSError, TypeError):
+            pass
+
+    arguments: list[str] = []
+    current: list[str] = []
+    in_quotes = False
+    argument_started = False
+    index = 0
+    while index < len(value):
+        character = value[index]
+        if character in " \t" and not in_quotes:
+            if argument_started:
+                arguments.append("".join(current))
+                current = []
+                argument_started = False
+            index += 1
+            continue
+        if character == "\\":
+            start = index
+            while index < len(value) and value[index] == "\\":
+                index += 1
+            slash_count = index - start
+            if index < len(value) and value[index] == '"':
+                current.extend("\\" * (slash_count // 2))
+                argument_started = True
+                if slash_count % 2:
+                    current.append('"')
+                    index += 1
+                else:
+                    in_quotes = not in_quotes
+                    index += 1
+            else:
+                current.extend("\\" * slash_count)
+                argument_started = True
+            continue
+        if character == '"':
+            in_quotes = not in_quotes
+            argument_started = True
+            index += 1
+            continue
+        current.append(character)
+        argument_started = True
+        index += 1
+
+    if argument_started:
+        arguments.append("".join(current))
+    return arguments
 
 
 def parser_mode(value: str | None = None) -> str:
@@ -86,6 +162,10 @@ def analyze_csharp_files(paths: list[Path], mode: str | None = None) -> dict[Pat
                 if selected_mode == "roslyn":
                     detail = completed.stderr.strip() or f"helper exited with code {completed.returncode}"
                     raise RoslynError(f"Roslyn helper failed: {detail}")
+                print(
+                    "Warning: Roslyn helper failed; falling back to the built-in C# parser.",
+                    file=sys.stderr,
+                )
                 return {}
 
             payload = json.loads(completed.stdout)
@@ -108,10 +188,19 @@ def analyze_csharp_files(paths: list[Path], mode: str | None = None) -> dict[Pat
     except subprocess.TimeoutExpired as ex:
         if selected_mode == "roslyn":
             raise RoslynError("Roslyn helper timed out") from ex
+        print(
+            "Warning: Roslyn helper timed out; falling back to the built-in C# parser.",
+            file=sys.stderr,
+        )
         return {}
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as ex:
         if selected_mode == "roslyn":
             raise RoslynError(f"Roslyn helper returned invalid output: {ex}") from ex
+        print(
+            f"Warning: Roslyn helper returned invalid output ({ex}); "
+            "falling back to the built-in C# parser.",
+            file=sys.stderr,
+        )
         return {}
 
 

@@ -26,7 +26,7 @@ Checks run against an explicit repository working directory. A policy file is op
 
 ## Quality metrics and rules
 
-The enforcer combines numeric maintainability metrics with structural quality rules. Thresholds below are built-in defaults and can be overridden in `.quality/quality_policy.json`.
+The enforcer combines numeric maintainability metrics with structural quality rules. Thresholds below are built-in defaults and can be overridden in `.quality/quality_policy.json`. Configured expected coverage packages must be present in the merged report; missing aliases fail the repository coverage gate.
 
 | Area | What is measured or enforced | Built-in default |
 | --- | --- | --- |
@@ -160,11 +160,11 @@ For automation, request a structured result envelope:
 dotnet-quality --output json code-size --scope full
 ```
 
-The JSON envelope has `schema_version: 1`, status and return-code fields, normalized `blocking_errors`, warnings, repository metadata, and the original `stdout`/`stderr`. Use `blocking_errors` for build failures; `violations` remains available for detailed or legacy consumers.
+The JSON envelope has `schema_version: 1`, status and return-code fields, normalized `blocking_errors`, warnings, repository metadata, and the original `stdout`/`stderr`. Use `blocking_errors` for build failures; `violations` remains available for detailed or legacy consumers. Policy validation is strict: unknown sections and keys are rejected so a misspelled setting cannot silently fall back to a default.
 
-Most commands use `.quality/quality_policy.json` by default when it exists. The top-level command validates known policy keys before starting a gate and reports the exact invalid key. Baseline files contain known violations that are intentionally accepted by the consuming repository; keep those files in the consuming repository rather than in this package.
+Most commands use `.quality/quality_policy.json` by default when it exists. The top-level command validates policy structure and value types before starting a gate and reports the exact invalid key. Baseline files contain known violations that are intentionally accepted by the consuming repository; keep those files in the consuming repository rather than in this package.
 
-The top-level options also support `--timeout SECONDS` for external tools and `--parser auto|python|roslyn`. The default `auto` mode uses Roslyn only when configured; `python` forces the dependency-free parser, and `roslyn` fails if the helper is unavailable or cannot analyze a file.
+The top-level options also support `--timeout SECONDS` for external tools and `--parser auto|python|roslyn`. The default `auto` mode uses Roslyn only when configured; `python` forces the dependency-free parser, and strict `roslyn` mode currently applies to `source-type-layout` and `test-conventions` and fails if the helper is unavailable or cannot analyze a file.
 
 ## Optional Roslyn parsing
 
@@ -175,7 +175,7 @@ dotnet build tools/roslyn-analyzer/DotnetQualityRoslyn.csproj -c Release
 export DOTNET_QUALITY_ROSLYN_COMMAND="dotnet tools/roslyn-analyzer/bin/Release/net8.0/DotnetQualityRoslyn.dll"
 ```
 
-When configured, source-type and unit-test convention analysis uses Roslyn. If the helper is unavailable or returns an error, the built-in parser is used instead.
+When configured, source-type and unit-test convention analysis uses Roslyn. In `auto` mode, an unavailable helper can use the built-in parser; use `roslyn` when a gate must fail rather than degrade to the fallback parser. The fallback parser is dependency-free but should be treated as a compatibility mode for modern C# syntax.
 
 Versioned releases also include a framework-dependent Roslyn helper archive. It requires the .NET 8 runtime but avoids rebuilding the helper locally.
 
@@ -188,7 +188,8 @@ The badge at the top of this page tracks downloads of the wheel and source-distr
 Run the local checks with:
 
 ```bash
-python -m unittest discover -s tests -p "test_*.py"
+python -m coverage run -m unittest discover -s tests -p "test_*.py"
+python -m coverage report
 ruff check src tests action_runner.py
 mypy src action_runner.py
 pip-audit .

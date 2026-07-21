@@ -28,18 +28,18 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: "8.x"
 
@@ -59,6 +59,50 @@ jobs:
             --output release-assets/roslyn-helper
           tar -czf "release-assets/dotnet-quality-roslyn-${GITHUB_REF_NAME:-snapshot}.tar.gz" \
             -C release-assets/roslyn-helper .
+
+      - name: Generate Roslyn helper SBOM
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from urllib.parse import quote
+          from uuid import uuid4
+
+          assets_path = Path("tools/roslyn-analyzer/obj/project.assets.json")
+          assets = json.loads(assets_path.read_text(encoding="utf-8"))
+          packages = {}
+          for library in assets.get("libraries", {}):
+              package_id, separator, version = library.partition("/")
+              if not separator or not package_id or not version:
+                  continue
+              purl = f"pkg:nuget/{quote(package_id, safe='.-_')}@{quote(version, safe='.-_')}"
+              packages[library] = {
+                  "type": "library",
+                  "bom-ref": purl,
+                  "name": package_id,
+                  "version": version,
+                  "purl": purl,
+                  "scope": "required",
+              }
+
+          bom = {
+              "bomFormat": "CycloneDX",
+              "specVersion": "1.5",
+              "serialNumber": f"urn:uuid:{uuid4()}",
+              "version": 1,
+              "metadata": {
+                  "component": {
+                      "type": "application",
+                      "name": "DotnetQualityRoslyn",
+                  }
+              },
+              "components": sorted(packages.values(), key=lambda item: (item["name"], item["version"])),
+          }
+          Path("dist/roslyn-helper-sbom.json").write_text(
+              json.dumps(bom, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
 
       - name: Validate distributions
         run: twine check dist/*
@@ -94,7 +138,7 @@ jobs:
           sha256sum dist/* > dist/SHA256SUMS
 
       - name: Attest release artifacts
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with:
           subject-path: dist/*
 
@@ -128,7 +172,7 @@ jobs:
           PY
 
       - name: Upload distributions as workflow artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dotnet-quality-enforcer-distributions
           path: dist/
@@ -151,7 +195,7 @@ jobs:
 
     steps:
       - name: Download distributions
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: dotnet-quality-enforcer-distributions
           path: dist
@@ -226,7 +270,7 @@ jobs:
 
     steps:
       - name: Download distributions
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: dotnet-quality-enforcer-distributions
           path: dist
@@ -238,6 +282,6 @@ jobs:
           cp dist/*.whl dist/dotnet_quality_gates-*.tar.gz pypi-dist/
 
       - name: Publish package
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # release/v1
         with:
           packages-dir: pypi-dist/

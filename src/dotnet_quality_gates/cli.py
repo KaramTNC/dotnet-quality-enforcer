@@ -73,6 +73,7 @@ def _commands() -> dict[str, CommandSpec]:
 # Kept as a small compatibility surface for callers that used the old constant.
 COMMAND_NAMES = tuple(_commands())
 JSON_SCHEMA_VERSION = 1
+ROSLYN_COMMANDS = frozenset({"source-type-layout", "test-conventions"})
 
 
 def main() -> int:
@@ -131,6 +132,18 @@ def main() -> int:
         parser.error(f"Repository root does not exist: {repo_root}")
 
     policy_path = _policy_path(repo_root, args.policy_path, args.arguments)
+    if args.parser == "roslyn" and args.command not in ROSLYN_COMMANDS:
+        return _emit_failure(
+            args.output,
+            args.command,
+            repo_root,
+            policy_path,
+            args.parser,
+            "Parser mode 'roslyn' is currently supported only by: "
+            + ", ".join(sorted(ROSLYN_COMMANDS))
+            + ".",
+            2,
+        )
     try:
         validate_policy_file(policy_path)
     except PolicyValidationError as ex:

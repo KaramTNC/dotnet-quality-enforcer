@@ -39,6 +39,22 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(payload["violations"], ["src/Example.cs:1: Missing namespace."])
         self.assertEqual(payload["blocking_errors"], ["src/Example.cs:1: Missing namespace."])
 
+    def test_prefers_structured_diagnostics_over_scraped_output(self) -> None:
+        payload = add_result_diagnostics(
+            {
+                "command": "namespace-layout",
+                "status": "failed",
+                "returncode": 1,
+                "violations": ["structured violation"],
+                "blocking_errors": ["structured blocking error"],
+                "stdout": " - stale output detail\n",
+                "stderr": " - another stale output detail\n",
+            }
+        )
+
+        self.assertEqual(payload["violations"], ["structured violation"])
+        self.assertEqual(payload["blocking_errors"], ["structured blocking error"])
+
     def test_summaries_are_easy_to_scan(self) -> None:
         payload = {
             "command": "code-size",

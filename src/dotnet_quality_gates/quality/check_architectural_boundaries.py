@@ -40,6 +40,8 @@ USING_DIRECTIVE_PATTERN = re.compile(
     r"(?:(?:[A-Za-z_]\w*)\s*=\s*)?"
     r"(?P<namespace>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*;"
 )
+MAX_PROJECT_XML_BYTES = 10 * 1024 * 1024
+UNSAFE_XML_DECLARATION_PATTERN = re.compile(r"<!\s*(?:DOCTYPE|ENTITY)\b", re.IGNORECASE)
 
 
 def load_architectural_boundaries_config(policy_path: Path) -> tuple[list[str], list[str], dict[str, list[str]]]:
@@ -140,7 +142,7 @@ def read_project_references(project_path: Path) -> list[tuple[str, int]]:
     references: list[tuple[str, int]] = []
 
     try:
-        root = ET.fromstring(text)
+        root = parse_safe_xml_text(text)
     except ET.ParseError:
         return references
 
@@ -153,6 +155,17 @@ def read_project_references(project_path: Path) -> list[tuple[str, int]]:
         references.append((include, find_project_reference_line(text, include)))
 
     return references
+
+
+def parse_safe_xml_text(text: str) -> ET.Element:
+    if len(text.encode("utf-8")) > MAX_PROJECT_XML_BYTES:
+        raise ValueError(f"Project XML exceeds the {MAX_PROJECT_XML_BYTES} byte safety limit")
+    if UNSAFE_XML_DECLARATION_PATTERN.search(text):
+        raise ValueError("Project XML must not contain DTD or entity declarations")
+
+    # ElementTree does not fetch external resources, while the declaration check
+    # above prevents DTD-based entity expansion before parsing untrusted project files.
+    return ET.fromstring(text)
 
 
 def find_project_reference_line(text: str, include: str) -> int:
@@ -255,11 +268,15 @@ def main() -> int:
         print("Architectural boundary check failed: no valid include roots found.", file=sys.stderr)
         return 1
 
-    violations = validate_architectural_boundaries(
-        include_roots=include_roots,
-        exclude_globs=exclude_globs,
-        layer_rules=layer_rules,
-    )
+    try:
+        violations = validate_architectural_boundaries(
+            include_roots=include_roots,
+            exclude_globs=exclude_globs,
+            layer_rules=layer_rules,
+        )
+    except ValueError as ex:
+        print(f"Architectural boundary check failed: {ex}", file=sys.stderr)
+        return 1
 
     baseline_violations = load_prefixed_baseline_violations(Path(args.baseline_path))
     if baseline_violations:

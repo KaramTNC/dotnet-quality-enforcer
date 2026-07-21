@@ -109,6 +109,14 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(payload["parser"], "python")
 
+    def test_strict_roslyn_mode_rejects_commands_without_roslyn_support(self) -> None:
+        result, payload = self._run_cli(
+            ["--repo-root", str(Path.cwd()), "--parser", "roslyn", "--output", "json", "code-size"]
+        )
+
+        self.assertEqual(result, 2)
+        self.assertIn("supported only", payload["stderr"])
+
 
 if __name__ == "__main__":
     unittest.main()
