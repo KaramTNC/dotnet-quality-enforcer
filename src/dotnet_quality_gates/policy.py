@@ -64,12 +64,26 @@ def validate_policy_document(document: dict[str, object], path: Path | None = No
         "unit_test_conventions": {"source_include_roots": _string_list},
     }
 
+    for section_name in document:
+        if section_name not in section_rules:
+            expected = ", ".join(sorted(section_rules))
+            raise PolicyValidationError(
+                f"policy key '{section_name}'{location} is unknown; expected one of: {expected}"
+            )
+
     for section_name, fields in section_rules.items():
         if section_name not in document:
             continue
         section = document[section_name]
         if not isinstance(section, dict):
             raise PolicyValidationError(f"policy section '{section_name}'{location} must be an object")
+        for field_name in section:
+            if field_name not in fields:
+                expected = ", ".join(sorted(fields))
+                raise PolicyValidationError(
+                    f"policy key '{section_name}.{field_name}'{location} is unknown; "
+                    f"expected one of: {expected}"
+                )
         for field_name, validator in fields.items():
             if field_name in section and not validator(section[field_name]):
                 raise PolicyValidationError(

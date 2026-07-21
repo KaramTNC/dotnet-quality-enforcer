@@ -26,11 +26,11 @@ Checks run against an explicit repository working directory. A policy file is op
 
 ## Quality metrics and rules
 
-The enforcer combines numeric maintainability metrics with structural quality rules. Thresholds below are built-in defaults and can be overridden in `.quality/quality_policy.json`.
+The enforcer combines numeric maintainability metrics with structural quality rules. Thresholds below are built-in defaults and can be overridden in `.quality/quality_policy.json`. Configured expected coverage packages must be present in the merged report; missing aliases fail the repository coverage gate.
 
 | Area | What is measured or enforced | Built-in default |
 | --- | --- | --- |
-| Code size | Physical lines in each method, type, and source file. XML documentation comments are excluded from source-file totals; partial types are aggregated across files. | Warn at 40/250/300 lines and fail at 60/350/450 lines for methods/types/files respectively. |
+| Code size | Physical lines in each method, type, and source file, excluding XML documentation comment lines from source-file totals; partial types are also aggregated across files. | Warn at 40/250/300 lines and fail at 60/350/450 lines for methods/types/files respectively. |
 | Diff complexity | Changed production methods are checked for [cyclomatic complexity](https://docs.sonarsource.com/sonarqube-server/user-guide/code-metrics/metrics-definition#cyclomatic-complexity), [cognitive complexity](https://docs.sonarsource.com/sonarqube-server/user-guide/code-metrics/metrics-definition#cognitive-complexity), and [CRAP score](https://testing.googleblog.com/2011/02/this-code-is-crap.html). | Cyclomatic <= 10, cognitive <= 10, CRAP <= 30.00. No file-count limit by default. |
 | CRAP score | Combines cyclomatic complexity with method coverage: `complexity² × (1 - coverage)³ + complexity`. Higher complexity and lower coverage produce a higher risk score. | Maximum 30.00. Coverage comes from the supplied Cobertura report. |
 | Diff coverage | Executable changed-line coverage and, when configured, changed-branch coverage. | Line coverage >= 80%; branch coverage is optional. No file-count limit by default. |
@@ -82,7 +82,7 @@ steps:
 
 The `v0` compatibility tag tracks the latest 0.x release. For production workflows, replace it with the release you have reviewed or an immutable commit SHA.
 
-The action installs the package, runs the selected gate, and exposes `result`, `status`, `returncode`, `violations`, `blocking-errors`, and `warnings`. It also writes a compact status block and a Markdown section to `GITHUB_STEP_SUMMARY`. Set `install-roslyn: true` to install the .NET 8 SDK and build the bundled Roslyn helper. `coverage-report` still requires [ReportGenerator](https://github.com/danielpalme/ReportGenerator) on the runner.
+The action installs the package, runs the selected gate, and exposes `result`, `status`, `returncode`, `violations`, `blocking-errors`, and `warnings` outputs. Each invocation also prints a compact status block and appends a Markdown section to `GITHUB_STEP_SUMMARY`. Calling the action once per gate therefore creates one centralized job summary containing the blocking errors from every gate. Set `install-roslyn: true` to install the .NET 8 SDK and build the bundled Roslyn helper before running a Roslyn-enabled gate. The `coverage-report` command still requires [ReportGenerator](https://github.com/danielpalme/ReportGenerator) on the runner.
 
 The action's `result` output uses the same `schema_version: 1` JSON envelope as the command-line interface:
 
@@ -102,13 +102,13 @@ cd dotnet-quality-enforcer
 python -m pip install .
 ```
 
-Tagged releases can publish the package to PyPI through trusted publishing. After connecting the repository's `pypi` environment to a PyPI trusted publisher, install the CLI with:
+The versioned release workflow also supports publishing the package to PyPI through trusted publishing. Once the repository's `pypi` environment is connected to a PyPI trusted publisher, install the CLI with:
 
 ```bash
 python -m pip install dotnet-quality-gates
 ```
 
-The workflow uses short-lived OIDC credentials; no PyPI token is stored in the repository.
+The one-time PyPI trusted-publisher configuration should use owner `KaramTNC`, repository `dotnet-quality-enforcer`, workflow `package.yml`, and environment `pypi`. The workflow uses short-lived OIDC credentials; no PyPI token is stored in the repository.
 
 For local development, install the development tools as well:
 
@@ -160,11 +160,11 @@ For automation, request a structured result envelope:
 dotnet-quality --output json code-size --scope full
 ```
 
-The JSON envelope has `schema_version: 1`, status and return-code fields, normalized `blocking_errors`, warnings, repository metadata, and the original `stdout`/`stderr`. Use `blocking_errors` for build failures; `violations` remains available for detailed or legacy consumers.
+The JSON envelope has `schema_version: 1`, a `status`, `returncode`, `violations`, normalized `blocking_errors`, `warnings`, repository metadata, and the original `stdout`/`stderr` for compatibility. `blocking_errors` is the concise list to display when a gate blocks the build; `violations` remains available for consumers that need the legacy extracted detail list. Policy validation is strict: unknown sections and keys are rejected so a misspelled setting cannot silently fall back to a default.
 
-Most commands use `.quality/quality_policy.json` by default when it exists. The top-level command validates known policy keys before starting a gate and reports the exact invalid key. Baseline files contain known violations that are intentionally accepted by the consuming repository; keep those files in the consuming repository rather than in this package.
+Most commands use `.quality/quality_policy.json` by default when it exists. The top-level command validates policy structure and value types before starting a gate and reports the exact invalid key. Baseline files contain known violations that are intentionally accepted by the consuming repository; keep those files in the consuming repository rather than in this package.
 
-The top-level options also support `--timeout SECONDS` for external tools and `--parser auto|python|roslyn`. The default `auto` mode uses Roslyn only when configured; `python` forces the dependency-free parser, and `roslyn` fails if the helper is unavailable or cannot analyze a file.
+The top-level options also support `--timeout SECONDS` for external tools and `--parser auto|python|roslyn`. The default `auto` mode uses Roslyn only when configured; `python` forces the dependency-free parser, and strict `roslyn` mode currently applies to `source-type-layout` and `test-conventions` and fails if the helper is unavailable or cannot analyze a file.
 
 ## Optional Roslyn parsing
 
@@ -175,7 +175,7 @@ dotnet build tools/roslyn-analyzer/DotnetQualityRoslyn.csproj -c Release
 export DOTNET_QUALITY_ROSLYN_COMMAND="dotnet tools/roslyn-analyzer/bin/Release/net8.0/DotnetQualityRoslyn.dll"
 ```
 
-When configured, source-type and unit-test convention analysis uses Roslyn. If the helper is unavailable or returns an error, the built-in parser is used instead.
+When configured, source-type and unit-test convention analysis uses Roslyn. In `auto` mode, an unavailable helper can use the built-in parser; use `roslyn` when a gate must fail rather than degrade to the fallback parser. The fallback parser is dependency-free but should be treated as a compatibility mode for modern C# syntax.
 
 Versioned releases also include a framework-dependent Roslyn helper archive. It requires the .NET 8 runtime but avoids rebuilding the helper locally.
 
@@ -188,13 +188,16 @@ The badge at the top of this page tracks downloads of the wheel and source-distr
 Run the local checks with:
 
 ```bash
-python -m unittest discover -s tests -p "test_*.py"
+python -m coverage run -m unittest discover -s tests -p "test_*.py"
+python -m coverage report
 ruff check src tests action_runner.py
 mypy src action_runner.py
 pip-audit .
 ```
 
-These checks use [Ruff](https://docs.astral.sh/ruff/), [mypy](https://mypy.readthedocs.io/), and [pip-audit](https://github.com/pypa/pip-audit). Pull requests targeting `staging` or `main` run the test suite on Python 3.10 through 3.13, static analysis, and a Roslyn smoke test. Pushes to `main` build distributions and create a GitHub Release; `vX.Y.Z` tags create versioned releases and can publish to PyPI.
+The test suite also includes cross-platform action argument, policy-validation, coverage, XML-input, and JSON-output contract checks. Run the Roslyn build locally when changing the helper or parser integration.
+
+Pull requests targeting `staging` or `main` run the test suite on Python 3.10 through 3.13, plus static analysis and a Roslyn helper smoke test. Successful pushes to `main` build distributions and create a GitHub Release named `main-<commit-sha>`. Version tags matching `vX.Y.Z` create versioned releases and publish the Python package when PyPI trusted publishing is configured. The release workflow requires GitHub Actions permission to write repository contents.
 
 The package version is derived from Git tags with [`setuptools-scm`](https://setuptools-scm.readthedocs.io/); source checkouts without package metadata use `0.0.0+unknown`.
 

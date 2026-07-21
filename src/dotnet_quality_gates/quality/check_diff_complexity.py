@@ -13,6 +13,7 @@ from dotnet_quality_gates.context import current_context
 from dotnet_quality_gates.coverage.check_diff_coverage import (  # noqa: E402
     parse_changed_lines,
     parse_coverage,
+    parse_safe_xml,
     resolve_coverage_file,
     run_git_diff,
 )
@@ -65,14 +66,20 @@ class MethodMetric:
     cognitive_complexity: int = 0
     coverable_lines: int = 0
     covered_lines: int = 0
+    coverage_available: bool = False
 
     @property
-    def coverage_ratio(self) -> float:
+    def coverage_ratio(self) -> float | None:
+        if not self.coverage_available:
+            return None
         return 1.0 if self.coverable_lines == 0 else self.covered_lines / self.coverable_lines
 
     @property
-    def crap_score(self) -> float:
-        uncovered = 1.0 - self.coverage_ratio
+    def crap_score(self) -> float | None:
+        coverage_ratio = self.coverage_ratio
+        if coverage_ratio is None:
+            return None
+        uncovered = 1.0 - coverage_ratio
         return (self.complexity**2) * (uncovered**3) + self.complexity
 
 
@@ -374,8 +381,10 @@ def add_coverage(
 ) -> MethodMetric:
     coverable = 0
     covered = 0
+    coverage_available = False
     for line_number, hits in line_hits.items():
         if method.start_line <= line_number <= method.end_line:
+            coverage_available = True
             coverable += 1
             if hits > 0:
                 covered += 1
@@ -390,6 +399,7 @@ def add_coverage(
         cognitive_complexity=method.cognitive_complexity,
         coverable_lines=coverable,
         covered_lines=covered,
+        coverage_available=coverage_available,
     )
 
 
@@ -419,7 +429,7 @@ def parse_coverage_methods(coverage_path: Path) -> dict[str, list[MethodMetric]]
         raise FileNotFoundError(f"Coverage file not found: {coverage_path}")
 
     try:
-        root = ET.parse(coverage_path).getroot()
+        root = parse_safe_xml(coverage_path)
     except ET.ParseError as ex:
         raise ValueError(f"Failed to parse coverage file '{coverage_path}': {ex}") from ex
 
@@ -438,7 +448,10 @@ def parse_coverage_methods(coverage_path: Path) -> dict[str, list[MethodMetric]]
                 if line_node.get("number")
             ]
             if not line_numbers:
-                continue
+                method_line = method_node.get("line")
+                if not method_line:
+                    continue
+                line_numbers = [int(method_line)]
 
             complexity = int(float(method_node.get("complexity", "0")))
             covered = sum(1 for line_node in line_nodes if int(line_node.get("hits", "0")) > 0)
@@ -452,6 +465,7 @@ def parse_coverage_methods(coverage_path: Path) -> dict[str, list[MethodMetric]]
                 cognitive_complexity=0,
                 coverable_lines=len(line_nodes),
                 covered_lines=covered,
+                coverage_available=True,
             )
             methods_by_path.setdefault(file_path, []).append(method)
 
@@ -510,7 +524,21 @@ def with_reported_complexity(
         cognitive_complexity=method.cognitive_complexity,
         coverable_lines=coverage_method.coverable_lines,
         covered_lines=coverage_method.covered_lines,
+        coverage_available=coverage_method.coverage_available,
     )
+
+
+def crap_violation(method: MethodMetric, location: str, crap_max: float) -> str | None:
+    crap_score = method.crap_score
+    if crap_score is None:
+        return f"{location} has no method coverage data; CRAP score cannot be evaluated."
+    if crap_score > crap_max:
+        return (
+            f"{location} has CRAP score {crap_score:.2f}; maximum allowed is "
+            f"{crap_max:.2f}. Complexity {method.complexity}, method coverage "
+            f"{method.covered_lines}/{method.coverable_lines}."
+        )
+    return None
 
 
 def validate_diff_complexity(
@@ -601,12 +629,9 @@ def validate_diff_complexity(
                         f"from {previous} to {method.cognitive_complexity}."
                     )
 
-            if method.crap_score > crap_max:
-                violations.append(
-                    f"{location} has CRAP score {method.crap_score:.2f}; maximum allowed is "
-                    f"{crap_max:.2f}. Complexity {method.complexity}, method coverage "
-                    f"{method.covered_lines}/{method.coverable_lines}."
-                )
+            violation = crap_violation(method, location, crap_max)
+            if violation is not None:
+                violations.append(violation)
 
         for method in changed_coverage_methods(reported_methods, lines):
             if coverage_method_id(method) in checked_reported_methods:
@@ -619,12 +644,9 @@ def validate_diff_complexity(
                     f"maximum allowed for changed methods is {cyclomatic_max}."
                 )
 
-            if method.crap_score > crap_max:
-                violations.append(
-                    f"{location} has CRAP score {method.crap_score:.2f}; maximum allowed is "
-                    f"{crap_max:.2f}. Complexity {method.complexity}, method coverage "
-                    f"{method.covered_lines}/{method.coverable_lines}."
-                )
+            violation = crap_violation(method, location, crap_max)
+            if violation is not None:
+                violations.append(violation)
 
     return violations
 

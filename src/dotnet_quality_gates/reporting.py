@@ -23,6 +23,12 @@ def _unique(values: Iterable[str]) -> list[str]:
     return result
 
 
+def _structured_diagnostics(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return _unique(item for item in value if isinstance(item, str))
+
+
 def extract_violations(stdout: str, stderr: str) -> list[str]:
     """Extract the detail lines used by the existing violations output."""
     lines = [*stdout.splitlines(), *stderr.splitlines()]
@@ -74,10 +80,13 @@ def add_result_diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
     """Add normalized diagnostics while preserving the schema-v1 envelope."""
     stdout = str(payload.get("stdout", ""))
     stderr = str(payload.get("stderr", ""))
+    violations = _structured_diagnostics(payload.get("violations"))
+    blocking_errors = _structured_diagnostics(payload.get("blocking_errors"))
     return {
         **payload,
-        "violations": extract_violations(stdout, stderr),
-        "blocking_errors": extract_blocking_errors(int(payload.get("returncode", 1)), stdout, stderr),
+        "violations": violations or extract_violations(stdout, stderr),
+        "blocking_errors": blocking_errors
+        or extract_blocking_errors(int(payload.get("returncode", 1)), stdout, stderr),
     }
 
 
