@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from dotnet_quality_gates.context import current_context
+from dotnet_quality_gates.languages import TypeDeclarationAdapter, adapter_for_path, adapters_for_language
 from dotnet_quality_gates.quality.common import (  # noqa: E402
     is_repo_excluded,
     load_prefixed_baseline_violations,
@@ -14,7 +15,6 @@ from dotnet_quality_gates.quality.common import (  # noqa: E402
 from dotnet_quality_gates.unit_test_conventions import (  # noqa: E402
     REPO_ROOT,
     compute_brace_depths,
-    iter_cs_files,
     mask_comments_and_strings,
 )
 from dotnet_quality_gates.unit_test_conventions.roslyn import (  # noqa: E402
@@ -56,6 +56,11 @@ def is_excluded(path: Path, exclude_globs: list[str]) -> bool:
 
 
 def parse_top_level_type_declarations(path: Path) -> list[tuple[str, int]]:
+    if path.suffix.lower() != ".cs":
+        adapter = adapter_for_path(path)
+        if not isinstance(adapter, TypeDeclarationAdapter):
+            return []
+        return adapter.parse_type_declarations(path, path.read_text(encoding="utf-8", errors="ignore"))
     roslyn_analysis = analyze_csharp_file(path)
     if roslyn_analysis is not None:
         return [
@@ -93,18 +98,20 @@ def validate_source_type_layout(
     for include_root in include_roots:
         file_paths = [
             file_path
-            for file_path in iter_cs_files(include_root)
+            for adapter in adapters_for_language(current_context().language, include_root)
+            for file_path in adapter.discover_files(include_root)
             if not is_excluded(file_path, exclude_globs)
         ]
+        csharp_file_paths = [file_path for file_path in file_paths if file_path.suffix.lower() == ".cs"]
         try:
-            roslyn_analyses = analyze_csharp_files(file_paths)
+            roslyn_analyses = analyze_csharp_files(csharp_file_paths)
         except RoslynError as ex:
             violations.append(f"{include_root.relative_to(REPO_ROOT)}: {ex}")
             continue
 
         for file_path in file_paths:
             try:
-                roslyn_analysis = roslyn_analyses.get(file_path.resolve())
+                roslyn_analysis = roslyn_analyses.get(file_path.resolve()) if file_path.suffix.lower() == ".cs" else None
                 if roslyn_analysis is not None:
                     declarations = [
                         (name, line)

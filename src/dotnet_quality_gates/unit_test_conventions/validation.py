@@ -6,7 +6,7 @@ from pathlib import Path
 from dotnet_quality_gates.context import current_context
 
 from .models import SourceClassInfo, TestClassInfo
-from .parsing import parse_test_method_name
+from .test_method_parsing import parse_test_method_name
 
 
 def _repo_root() -> Path:

@@ -40,7 +40,7 @@ from dotnet_quality_gates.unit_test_conventions import (
 )
 
 
-def main() -> int:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Validate C# test conventions and source-to-test mapping."
     )
@@ -68,7 +68,40 @@ def main() -> int:
         default=str(REPO_ROOT / ".quality" / "baselines" / "test_conventions_baseline.txt"),
         help="Path to a baseline file with one known violation per line prefixed by '- '.",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def _resolve_include_roots(configured_paths: list[str]) -> list[Path]:
+    include_roots: list[Path] = []
+    for relative_path in configured_paths:
+        include_root = (REPO_ROOT / relative_path).resolve()
+        if include_root.exists():
+            include_roots.append(include_root)
+        else:
+            print(f"Warning: include root not found and skipped: {relative_path}", file=sys.stderr)
+    return include_roots
+
+
+def _report_violations(violations: list[str], args: argparse.Namespace) -> int:
+    baseline_violations = load_baseline_violations(Path(args.baseline_path))
+    if baseline_violations:
+        violations = [
+            violation for violation in violations if canonicalize_violation_key(violation) not in baseline_violations
+        ]
+    if violations:
+        print("Test convention check failed.", file=sys.stderr)
+        displayed = violations[: args.max_violations]
+        for violation in displayed:
+            print(f" - {violation}", file=sys.stderr)
+        if len(violations) > len(displayed):
+            print(f" - ... {len(violations) - len(displayed)} additional violations omitted", file=sys.stderr)
+        return 1
+    print("Test convention check passed.")
+    return 0
+
+
+def main() -> int:
+    args = _parse_args()
 
     src_root = Path(args.src_root).resolve()
     unit_test_root = Path(args.unit_test_root).resolve()
@@ -86,13 +119,7 @@ def main() -> int:
         else load_default_source_include_roots(Path(args.policy_path))
     )
 
-    include_roots: list[Path] = []
-    for relative_path in configured_include_roots:
-        include_root = (REPO_ROOT / relative_path).resolve()
-        if include_root.exists():
-            include_roots.append(include_root)
-        else:
-            print(f"Warning: include root not found and skipped: {relative_path}", file=sys.stderr)
+    include_roots = _resolve_include_roots(configured_include_roots)
 
     if not include_roots:
         print("No valid source include roots were found.", file=sys.stderr)
@@ -117,26 +144,7 @@ def main() -> int:
 
     violations = [*source_errors, *combine_errors, *test_errors]
     violations.extend(validate_conventions(source_classes, test_classes, include_to_test_root))
-    baseline_violations = load_baseline_violations(Path(args.baseline_path))
-    if baseline_violations:
-        violations = [
-            violation
-            for violation in violations
-            if canonicalize_violation_key(violation) not in baseline_violations
-        ]
-
-    if violations:
-        print("Test convention check failed.", file=sys.stderr)
-        displayed = violations[: args.max_violations]
-        for violation in displayed:
-            print(f" - {violation}", file=sys.stderr)
-        if len(violations) > len(displayed):
-            remaining = len(violations) - len(displayed)
-            print(f" - ... {remaining} additional violations omitted", file=sys.stderr)
-        return 1
-
-    print("Test convention check passed.")
-    return 0
+    return _report_violations(violations, args)
 
 
 def load_baseline_violations(path: Path) -> set[str]:

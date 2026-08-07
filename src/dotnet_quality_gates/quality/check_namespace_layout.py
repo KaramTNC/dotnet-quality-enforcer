@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dotnet_quality_gates.context import current_context
+from dotnet_quality_gates.languages import adapters_for_language, language_for_path
 from dotnet_quality_gates.quality.common import (  # noqa: E402
     is_repo_excluded,
     load_prefixed_baseline_violations,
@@ -170,10 +171,12 @@ def validate_source_namespace_layout(
         resolved_files: set[Path] = set()
         for path in target_paths:
             absolute = path.resolve()
-            if absolute.is_file() and absolute.suffix.lower() == ".cs":
+            if absolute.is_file() and language_for_path(absolute) is not None:
                 resolved_files.add(absolute)
             elif absolute.is_dir():
-                for nested in absolute.rglob("*.cs"):
+                for nested in absolute.rglob("*"):
+                    if not nested.is_file() or language_for_path(nested) is None:
+                        continue
                     if any(part in {"bin", "obj"} for part in nested.parts):
                         continue
                     resolved_files.add(nested.resolve())
@@ -224,10 +227,51 @@ def validate_source_namespace_layout(
             if violation is not None:
                 violations.append(violation)
 
+        for adapter in adapters_for_language(current_context().language, include_root):
+            if adapter.language not in {"java", "kotlin"}:
+                continue
+            for file_path in adapter.discover_files(include_root):
+                absolute_file = file_path.resolve()
+                if target_files is not None and absolute_file not in target_files:
+                    continue
+                if is_excluded(file_path, exclude_globs):
+                    continue
+                expected_namespace = ".".join(file_path.parent.relative_to(include_root).parts)
+                if not expected_namespace:
+                    continue
+                original_text = file_path.read_text(encoding="utf-8", errors="ignore")
+                package_match = re.search(
+                    r"(?m)^\s*package\s+(?P<name>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*;?\s*$",
+                    original_text,
+                )
+                updated_text = original_text
+                generic_violation: str | None = None
+                if package_match is None:
+                    generic_violation = (
+                        f"{file_path.relative_to(REPO_ROOT)}:1: Missing package declaration. "
+                        f"Expected '{expected_namespace}'."
+                    )
+                    if fix:
+                        updated_text = f"package {expected_namespace};\n\n{original_text}"
+                elif package_match.group("name") != expected_namespace:
+                    line_number = original_text.count("\n", 0, package_match.start()) + 1
+                    generic_violation = (
+                        f"{file_path.relative_to(REPO_ROOT)}:{line_number}: Package '{package_match.group('name')}' "
+                        f"does not match expected '{expected_namespace}'."
+                    )
+                    if fix:
+                        start, end = package_match.start("name"), package_match.end("name")
+                        updated_text = f"{original_text[:start]}{expected_namespace}{original_text[end:]}"
+                if fix and updated_text != original_text:
+                    file_path.write_text(updated_text, encoding="utf-8")
+                    fixed_files += 1
+                elif generic_violation is not None:
+                    violations.append(generic_violation)
+
     return violations, fixed_files
 
 
-def main() -> int:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Validate source namespace declarations based on project-relative file paths."
     )
@@ -258,9 +302,10 @@ def main() -> int:
         default=None,
         help="Optional list of file or directory paths to scope the check/fix to.",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    include_root_texts, exclude_globs = load_source_namespace_layout_config(Path(args.policy_path))
+
+def _resolve_include_roots(include_root_texts: list[str]) -> list[Path]:
     include_roots: list[Path] = []
     for include_root_text in include_root_texts:
         include_root = (REPO_ROOT / include_root_text).resolve()
@@ -268,42 +313,55 @@ def main() -> int:
             include_roots.append(include_root)
         else:
             print(f"Warning: include root not found and skipped: {include_root_text}", file=sys.stderr)
+    return include_roots
 
-    if not include_roots:
-        print("Source namespace layout check failed: no valid include roots found.", file=sys.stderr)
-        return 1
 
-    target_paths = None
-    if args.paths:
-        target_paths = [(REPO_ROOT / path).resolve() if not Path(path).is_absolute() else Path(path).resolve() for path in args.paths]
+def _resolve_target_paths(paths: list[str] | None) -> list[Path] | None:
+    if not paths:
+        return None
+    return [(REPO_ROOT / path).resolve() if not Path(path).is_absolute() else Path(path).resolve() for path in paths]
 
-    violations, fixed_files = validate_source_namespace_layout(
-        include_roots=include_roots,
-        exclude_globs=exclude_globs,
-        fix=args.fix,
-        target_paths=target_paths,
-    )
 
+def _report_namespace_results(
+    args: argparse.Namespace,
+    violations: list[str],
+    fixed_files: int,
+) -> int:
     if args.fix:
         print(f"Source namespace layout fix completed. Updated {fixed_files} file(s).")
         return 0
-
     baseline_violations = load_baseline_violations(Path(args.baseline_path))
     if baseline_violations:
         violations = [violation for violation in violations if violation not in baseline_violations]
-
     if violations:
         print("Source namespace layout check failed.", file=sys.stderr)
         displayed = violations[: args.max_violations]
         for violation in displayed:
             print(f" - {violation}", file=sys.stderr)
         if len(violations) > len(displayed):
-            remaining = len(violations) - len(displayed)
-            print(f" - ... {remaining} additional violations omitted", file=sys.stderr)
+            print(f" - ... {len(violations) - len(displayed)} additional violations omitted", file=sys.stderr)
         return 1
-
     print("Source namespace layout check passed.")
     return 0
+
+
+def main() -> int:
+    args = _parse_args()
+
+    include_root_texts, exclude_globs = load_source_namespace_layout_config(Path(args.policy_path))
+    include_roots = _resolve_include_roots(include_root_texts)
+
+    if not include_roots:
+        print("Source namespace layout check failed: no valid include roots found.", file=sys.stderr)
+        return 1
+
+    violations, fixed_files = validate_source_namespace_layout(
+        include_roots=include_roots,
+        exclude_globs=exclude_globs,
+        fix=args.fix,
+        target_paths=_resolve_target_paths(args.paths),
+    )
+    return _report_namespace_results(args, violations, fixed_files)
 
 
 if __name__ == "__main__":

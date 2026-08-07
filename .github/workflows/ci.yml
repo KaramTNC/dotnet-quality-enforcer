@@ -65,6 +65,37 @@ jobs:
       - name: Run mypy
         run: mypy src action_runner.py
 
+  self-quality:
+    name: Self quality gates
+    runs-on: ubuntu-latest
+    needs: [test, static-analysis]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install package
+        run: python -m pip install --upgrade pip && python -m pip install -c constraints-ci.txt -e ".[dev]"
+
+      - name: Validate policy
+        run: dotnet-quality --repo-root . --language auto --policy-path .quality/quality_policy.json code-size --scope full
+
+      - name: Enforce source type layout
+        run: dotnet-quality --repo-root . --language auto --policy-path .quality/quality_policy.json source-type-layout
+
+      - name: Enforce namespace layout
+        run: dotnet-quality --repo-root . --language auto --policy-path .quality/quality_policy.json namespace-layout
+
+      - name: Enforce architectural boundaries
+        run: dotnet-quality --repo-root . --language auto --policy-path .quality/quality_policy.json architectural-boundaries
+
+      - name: Enforce public API documentation
+        run: dotnet-quality --repo-root . --language auto --policy-path .quality/quality_policy.json public-api-documentation
+
   windows:
     name: Windows compatibility
     runs-on: windows-latest

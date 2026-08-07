@@ -4,31 +4,14 @@ import json
 import os
 import shlex
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 
 from dotnet_quality_gates.context import PARSER_MODES, current_context
 
 from .models import SourceClassInfo, TestClassInfo, TestMethodInfo
-
-
-class RoslynError(RuntimeError):
-    """Raised when strict Roslyn parsing cannot analyze a file."""
-
-
-@dataclass(frozen=True)
-class RoslynDiagnostic:
-    diagnostic_id: str
-    message: str
-    line: int
-
-
-@dataclass(frozen=True)
-class RoslynFileAnalysis:
-    source_classes: list[SourceClassInfo]
-    test_classes: list[TestClassInfo]
-    type_declarations: list[tuple[str, int, str]]
-    diagnostics: list[RoslynDiagnostic]
+from .roslyn_diagnostic import RoslynDiagnostic
+from .roslyn_error import RoslynError
+from .roslyn_file_analysis import RoslynFileAnalysis
 
 
 def _configured_command() -> list[str] | None:

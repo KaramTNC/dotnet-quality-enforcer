@@ -5,9 +5,45 @@
 [![Latest release](https://img.shields.io/github/v/release/KaramTNC/dotnet-quality-enforcer?sort=semver)](https://github.com/KaramTNC/dotnet-quality-enforcer/releases/latest)
 [![GitHub release downloads](https://img.shields.io/github/downloads/KaramTNC/dotnet-quality-enforcer/total.svg?label=GitHub%20release%20downloads)](https://github.com/KaramTNC/dotnet-quality-enforcer/releases)
 
-Installable, configuration-driven quality gates for C# and .NET repositories.
+Installable, configuration-driven quality gates for C#, Python, Java, Kotlin, TypeScript, JavaScript, Go, and Rust repositories.
 
 This project is pre-1.0. Feedback from teams using incremental quality enforcement is welcome.
+
+The implementation remains Python, while source analysis is selected through language adapters. The supported
+canonical language names are `csharp`, `python`, `java`, `kotlin`, `typescript`, `javascript`, `go`, and `rust`.
+`c#`, `cs`, `py`, `kt`, `kts`, and the legacy spelling `kotlyn` are accepted aliases, as are `ts`, `tsx`, `js`,
+`jsx`, `golang`, and `rs`. Use `--language` (or the `language` GitHub Action input) when a repository contains more
+than one supported language or when automatic discovery should be constrained.
+
+## Language adapter architecture
+
+The core owns policy validation, process orchestration, Git diff parsing, coverage-file handling, baselines, and
+normalized reporting. Adapters own file discovery and syntax-dependent metrics. The C# adapter delegates to the
+existing Roslyn/fallback analyzers, so existing .NET behavior remains intact. The Python, Java, Kotlin, TypeScript,
+JavaScript, Go, and Rust adapters provide dependency-free source discovery, type/method size metrics, and
+changed-method complexity metrics.
+
+To add another language:
+
+1. Add its canonical name, aliases, and extensions in `src/dotnet_quality_gates/languages/base.py`.
+2. Implement `LanguageAdapter` in `languages/generic.py` or a dedicated module, including discovery and normalized
+   `LanguageMetric`/`ComplexityMetric` output.
+3. Register the adapter in `adapters_for_language` and add focused parser, discovery, CLI, and regression tests.
+4. Keep policy, diff, coverage, and reporting changes in the language-neutral core unless the new language needs a
+   genuinely language-specific rule.
+
+Current adapter file coverage:
+
+| Adapter | Extensions |
+| --- | --- |
+| C# | `.cs` |
+| Python | `.py` |
+| Java | `.java` |
+| Kotlin | `.kt`, `.kts` |
+| TypeScript | `.ts`, `.tsx` |
+| JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` |
+| Go | `.go` |
+| Rust | `.rs` |
 
 ## What it does
 
@@ -59,7 +95,7 @@ Diff complexity and diff coverage analyze the full changed production set by def
 ## Requirements
 
 - [Python](https://www.python.org/) 3.10 or newer
-- A C#/.NET repository to analyze
+- A repository containing C#, Python, Java, Kotlin, TypeScript, JavaScript, Go, and/or Rust source files
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) only when using the optional [Roslyn](https://learn.microsoft.com/en-us/dotnet/csharp/roslyn-sdk/) parser
 - [ReportGenerator](https://github.com/danielpalme/ReportGenerator) only when using `coverage-report`
 
@@ -138,18 +174,34 @@ dotnet-quality public-api-documentation \
   --baseline-path .quality/baselines/public_api_documentation_baseline.txt
 ```
 
+The default language is `csharp` for backward compatibility with existing .NET workflows. Select another adapter
+explicitly, or use `auto` for mixed-language discovery:
+
+```bash
+dotnet-quality --language python code-size --scope full
+dotnet-quality --language java diff-complexity --base origin/main --coverage coverage.xml
+dotnet-quality --language kotlyn code-size --scope full  # alias for Kotlin
+dotnet-quality --language typescript code-size --scope full
+dotnet-quality --language go diff-complexity --base origin/main --coverage coverage.xml
+dotnet-quality --language rust code-size --scope full
+```
+
+With `--language auto`, source roots are scanned for supported extensions and each discovered adapter is applied.
+This makes mixed-language repositories work for language-neutral gates while language-specific .NET rules continue
+to operate only on C# sources.
+
 Available commands:
 
 | Command | Purpose |
 | --- | --- |
 | `architectural-boundaries` | Validate project and namespace dependency boundaries. |
-| `code-size` | Validate C# method, type, and file size. |
+| `code-size` | Validate method, type, and file size for supported languages. |
 | `diff-complexity` | Validate changed-method complexity and CRAP scores. |
 | `diff-coverage` | Validate changed-line and changed-branch coverage. |
 | `namespace-layout` | Validate source namespaces against their paths. |
 | `public-api-documentation` | Validate XML documentation for public C# APIs. |
 | `repo-coverage` | Validate Cobertura repository and package coverage. |
-| `source-type-layout` | Validate C# source type/file layout. |
+| `source-type-layout` | Validate source type/file layout for supported languages. |
 | `test-architecture` | Validate source and test project placement. |
 | `test-conventions` | Validate source-to-test naming and convention rules. |
 | `coverage-report` | Generate a ReportGenerator coverage report. |
@@ -192,9 +244,16 @@ python -m unittest discover -s tests -p "test_*.py"
 ruff check src tests action_runner.py
 mypy src action_runner.py
 pip-audit .
+
+# Run the same language-neutral gates used by this repository's CI job.
+dotnet-quality --repo-root . --language auto --policy-path .quality/quality_policy.json code-size --scope full
+dotnet-quality --repo-root . --language auto --policy-path .quality/quality_policy.json source-type-layout
+dotnet-quality --repo-root . --language auto --policy-path .quality/quality_policy.json namespace-layout
+dotnet-quality --repo-root . --language auto --policy-path .quality/quality_policy.json architectural-boundaries
+dotnet-quality --repo-root . --language auto --policy-path .quality/quality_policy.json public-api-documentation
 ```
 
-These checks use [Ruff](https://docs.astral.sh/ruff/), [mypy](https://mypy.readthedocs.io/), and [pip-audit](https://github.com/pypa/pip-audit). Pull requests targeting `staging` or `main` run the test suite on Python 3.10 through 3.13, static analysis, and a Roslyn smoke test. Pushes to `main` build distributions and create a GitHub Release; `vX.Y.Z` tags create versioned releases and can publish to PyPI.
+These checks use [Ruff](https://docs.astral.sh/ruff/), [mypy](https://mypy.readthedocs.io/), [pip-audit](https://github.com/pypa/pip-audit/), and the enforcer itself. The repository policy is stored in [`.quality/quality_policy.json`](.quality/quality_policy.json), so CI and local runs share the same thresholds. Pull requests targeting `staging` or `main` run the test suite on Python 3.10 through 3.13, static analysis, the self-quality gates, and a Roslyn smoke test. Pushes to `main` build distributions and create a GitHub Release; `vX.Y.Z` tags create versioned releases and can publish to PyPI.
 
 The package version is derived from Git tags with [`setuptools-scm`](https://setuptools-scm.readthedocs.io/); source checkouts without package metadata use `0.0.0+unknown`.
 

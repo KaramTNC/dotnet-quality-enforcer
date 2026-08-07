@@ -26,9 +26,8 @@ def validate_policy_file(path: Path) -> None:
     load_policy_document(path)
 
 
-def validate_policy_document(document: dict[str, object], path: Path | None = None) -> None:
-    location = f" in '{path}'" if path is not None else ""
-    section_rules: dict[str, dict[str, Callable[[object], bool]]] = {
+def _section_rules() -> dict[str, dict[str, Callable[[object], bool]]]:
+    return {
         "code_size": {
             "include_roots": _string_list,
             "exclude_globs": _string_list,
@@ -48,6 +47,7 @@ def validate_policy_document(document: dict[str, object], path: Path | None = No
             "branch_coverage_threshold": _optional_ratio,
         },
         "namespace_layout": {"include_roots": _string_list, "exclude_globs": _string_list},
+        "source_namespace_layout": {"include_roots": _string_list, "exclude_globs": _string_list},
         "source_type_layout": {"include_roots": _string_list, "exclude_globs": _string_list},
         "public_api_documentation": {"include_roots": _string_list, "exclude_globs": _string_list},
         "architectural_boundaries": {
@@ -64,6 +64,12 @@ def validate_policy_document(document: dict[str, object], path: Path | None = No
         "unit_test_conventions": {"source_include_roots": _string_list},
     }
 
+
+def _validate_section_fields(
+    document: dict[str, object],
+    section_rules: dict[str, dict[str, Callable[[object], bool]]],
+    location: str,
+) -> None:
     for section_name, fields in section_rules.items():
         if section_name not in document:
             continue
@@ -76,27 +82,40 @@ def validate_policy_document(document: dict[str, object], path: Path | None = No
                     f"policy key '{section_name}.{field_name}'{location} has an invalid value"
                 )
 
-    code_size = document.get("code_size")
-    if isinstance(code_size, dict):
-        for warning_key, failure_key in (
-            ("method_warn_lines", "method_max_lines"),
-            ("type_warn_lines", "type_max_lines"),
-            ("file_warn_lines", "file_max_lines"),
-        ):
-            warning = code_size.get(warning_key)
-            failure = code_size.get(failure_key)
-            if isinstance(warning, int) and isinstance(failure, int) and warning > failure:
-                raise PolicyValidationError(
-                    f"policy key '{warning_key}'{location} must not exceed '{failure_key}'"
-                )
 
+def _validate_code_size_order(document: dict[str, object], location: str) -> None:
+    code_size = document.get("code_size")
+    if not isinstance(code_size, dict):
+        return
+    for warning_key, failure_key in (
+        ("method_warn_lines", "method_max_lines"),
+        ("type_warn_lines", "type_max_lines"),
+        ("file_warn_lines", "file_max_lines"),
+    ):
+        warning = code_size.get(warning_key)
+        failure = code_size.get(failure_key)
+        if isinstance(warning, int) and isinstance(failure, int) and warning > failure:
+            raise PolicyValidationError(
+                f"policy key '{warning_key}'{location} must not exceed '{failure_key}'"
+            )
+
+
+def _validate_boundary_rules(document: dict[str, object], location: str) -> None:
     boundaries = document.get("architectural_boundaries")
-    if isinstance(boundaries, dict) and isinstance(boundaries.get("layer_rules"), dict):
-        for layer, dependencies in boundaries["layer_rules"].items():
-            if isinstance(dependencies, list) and layer in dependencies:
-                raise PolicyValidationError(
-                    f"policy key 'architectural_boundaries.layer_rules.{layer}'{location} cannot depend on itself"
-                )
+    if not isinstance(boundaries, dict) or not isinstance(boundaries.get("layer_rules"), dict):
+        return
+    for layer, dependencies in boundaries["layer_rules"].items():
+        if isinstance(dependencies, list) and layer in dependencies:
+            raise PolicyValidationError(
+                f"policy key 'architectural_boundaries.layer_rules.{layer}'{location} cannot depend on itself"
+            )
+
+
+def validate_policy_document(document: dict[str, object], path: Path | None = None) -> None:
+    location = f" in '{path}'" if path is not None else ""
+    _validate_section_fields(document, _section_rules(), location)
+    _validate_code_size_order(document, location)
+    _validate_boundary_rules(document, location)
 
 
 def _string_list(value: object) -> bool:
