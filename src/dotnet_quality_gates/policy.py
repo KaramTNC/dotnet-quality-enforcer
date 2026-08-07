@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Callable
 
+from dotnet_quality_gates.architecture import ArchitectureConfigurationError, validate_architecture_units
+
 
 class PolicyValidationError(ValueError):
     """Raised when a quality policy cannot be safely interpreted."""
@@ -50,6 +52,7 @@ def validate_policy_document(document: dict[str, object], path: Path | None = No
         "namespace_layout": {"include_roots": _string_list, "exclude_globs": _string_list},
         "source_type_layout": {"include_roots": _string_list, "exclude_globs": _string_list},
         "public_api_documentation": {"include_roots": _string_list, "exclude_globs": _string_list},
+        "architecture": {"units": _architecture_units},
         "architectural_boundaries": {
             "include_roots": _string_list,
             "exclude_globs": _string_list,
@@ -57,6 +60,8 @@ def validate_policy_document(document: dict[str, object], path: Path | None = No
         },
         "repo_coverage": {"expected_packages": _string_list},
         "test_architecture": {
+            "test_roots": _string_list,
+            "integration_test_roots": _string_list,
             "additional_project_mappings": _string_list_map,
             "project_mappings": _string_list_map,
         },
@@ -85,7 +90,15 @@ def validate_policy_document(document: dict[str, object], path: Path | None = No
                     f"expected one of: {expected}"
                 )
         for field_name, validator in fields.items():
-            if field_name in section and not validator(section[field_name]):
+            if field_name not in section:
+                continue
+            if section_name == "architecture" and field_name == "units":
+                try:
+                    validate_architecture_units(section[field_name])
+                except ArchitectureConfigurationError as ex:
+                    raise PolicyValidationError(f"{ex}{location}") from ex
+                continue
+            if not validator(section[field_name]):
                 raise PolicyValidationError(
                     f"policy key '{section_name}.{field_name}'{location} has an invalid value"
                 )
@@ -111,6 +124,14 @@ def validate_policy_document(document: dict[str, object], path: Path | None = No
                 raise PolicyValidationError(
                     f"policy key 'architectural_boundaries.layer_rules.{layer}'{location} cannot depend on itself"
                 )
+
+
+def _architecture_units(value: object) -> bool:
+    try:
+        validate_architecture_units(value)
+    except ArchitectureConfigurationError:
+        return False
+    return True
 
 
 def _string_list(value: object) -> bool:

@@ -56,6 +56,58 @@ For example, the complexity and coverage limits can be configured as follows:
 
 Diff complexity and diff coverage analyze the full changed production set by default. Set `max_files_for_gate` to a positive integer only when a repository explicitly wants a maintenance cap; the setting applies to both diff gates.
 
+### Architecture policies
+
+Architectural boundaries default to the repository's historical Onion layout (`Domain`,
+`Application`, `Infrastructure`, and `Presentation`). Projects using another shape can
+define their own named units in the top-level `architecture` policy section. A unit owns
+one or more source roots, can identify namespaces with explicit prefixes, and declares the
+other units it may depend on:
+
+```json
+{
+  "architecture": {
+    "units": {
+      "Core": {
+        "source_roots": ["src/Core"],
+        "namespace_prefixes": ["Acme.Core"],
+        "allowed_dependencies": []
+      },
+      "Api": {
+        "source_roots": ["src/Api"],
+        "namespace_prefixes": ["Acme.Api"],
+        "allowed_dependencies": ["Core"]
+      }
+    }
+  }
+}
+```
+
+This model supports layered, hexagonal, clean, modular-monolith, and vertical-slice
+layouts without requiring the checker to guess architectural intent. `namespace_prefixes`
+defaults to the unit name when omitted, and the most specific configured source root or
+namespace prefix wins. A source root or namespace prefix may belong to only one unit.
+
+For custom layouts, test locations are explicit because there is no universal convention
+for mapping tests to architectural units:
+
+```json
+{
+  "test_architecture": {
+    "test_roots": ["tests"],
+    "project_mappings": {
+      "tests/Unit/Features/Orders": ["src/Features/Orders"],
+      "tests/Integration/Api": ["src/Api"]
+    },
+    "integration_test_roots": ["tests/Integration"]
+  }
+}
+```
+
+Every C# file under a configured test root must be covered by one of these mappings. The
+legacy Onion-based test discovery remains active when no custom `architecture.units` are
+configured, so existing policies continue to work unchanged.
+
 ## Requirements
 
 - [Python](https://www.python.org/) 3.10 or newer

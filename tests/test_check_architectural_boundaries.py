@@ -35,12 +35,74 @@ class CheckArchitecturalBoundariesTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            include_roots, exclude_globs, layer_rules = self.mod.load_architectural_boundaries_config(policy_path)
+            include_roots, exclude_globs, architecture = self.mod.load_architectural_boundaries_config(policy_path)
 
         self.assertEqual(include_roots, ["src"])
         self.assertEqual(exclude_globs, ["**/*.g.cs"])
-        self.assertEqual(layer_rules["Application"], ["Domain"])
-        self.assertNotIn("Unknown", layer_rules)
+        self.assertEqual(architecture.unit_names, {"Domain", "Application", "Infrastructure", "Presentation"})
+        application = next(unit for unit in architecture.units if unit.name == "Application")
+        self.assertEqual(application.allowed_dependencies, {"Domain"})
+
+    def test_custom_architecture_uses_configured_roots_and_namespaces(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            core = root / "src" / "Core"
+            web = root / "src" / "Web"
+            core.mkdir(parents=True)
+            web.mkdir(parents=True)
+            (core / "Core.csproj").write_text(
+                """
+<Project>
+  <ItemGroup>
+    <ProjectReference Include="..\\Web\\Web.csproj" />
+  </ItemGroup>
+</Project>
+""".strip(),
+                encoding="utf-8",
+            )
+            (web / "Web.csproj").write_text("<Project />", encoding="utf-8")
+            (core / "Service.cs").write_text(
+                "using MyApp.Web.Controllers;\nnamespace MyApp.Core;\npublic class Service {}\n",
+                encoding="utf-8",
+            )
+            policy_path = root / "policy.json"
+            policy_path.write_text(
+                json.dumps(
+                    {
+                        "architecture": {
+                            "units": {
+                                "Core": {
+                                    "source_roots": ["src/Core"],
+                                    "namespace_prefixes": ["MyApp.Core"],
+                                    "allowed_dependencies": [],
+                                },
+                                "Web": {
+                                    "source_roots": ["src/Web"],
+                                    "namespace_prefixes": ["MyApp.Web"],
+                                    "allowed_dependencies": ["Core"],
+                                },
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            original_repo_root = self.mod.REPO_ROOT
+            self.mod.REPO_ROOT = root
+            try:
+                architecture = self.mod.load_architectural_boundaries_config(policy_path)[2]
+                violations = self.mod.validate_architectural_boundaries(
+                    include_roots=[root / "src"],
+                    exclude_globs=[],
+                    architecture=architecture,
+                )
+            finally:
+                self.mod.REPO_ROOT = original_repo_root
+
+        self.assertEqual(len(violations), 2)
+        self.assertTrue(any("Core project must not reference Web project" in violation for violation in violations))
+        self.assertTrue(any("Core code must not depend on Web namespace" in violation for violation in violations))
 
     def test_validate_project_references_reports_upward_dependency(self) -> None:
         with tempfile.TemporaryDirectory() as td:

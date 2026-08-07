@@ -5,6 +5,11 @@ import re
 import sys
 from pathlib import Path
 
+from dotnet_quality_gates.architecture import (
+    DEFAULT_LAYER_RULES,
+    ArchitectureConfig,
+    load_architecture_config,
+)
 from dotnet_quality_gates.context import current_context
 from dotnet_quality_gates.quality.common import load_policy_object, policy_section
 from dotnet_quality_gates.unit_test_conventions.discovery import iter_csharp_files
@@ -12,8 +17,10 @@ from dotnet_quality_gates.unit_test_conventions.discovery import iter_csharp_fil
 REPO_ROOT = current_context().repo_root
 DEFAULT_POLICY_PATH = current_context().policy_path
 
-ONION_LAYERS = ("Domain", "Application", "Infrastructure", "Presentation")
+ONION_LAYERS = tuple(DEFAULT_LAYER_RULES)
 TEST_SUITE_ROOTS = ("Unit", "Integration", "EndToEnd")
+DEFAULT_TEST_ROOTS = ("test/Unit", "test/Integration", "test/EndToEnd")
+DEFAULT_INTEGRATION_TEST_ROOTS = ("test/Integration",)
 
 SKIP_DIR_NAMES = {
     ".git",
@@ -73,6 +80,34 @@ def load_project_mappings(policy_path: Path) -> dict[str, list[str]]:
             normalized[test_project.strip()] = source_values
 
     return normalized
+
+
+def load_test_architecture_config(
+    policy_path: Path,
+    architecture: ArchitectureConfig | None = None,
+) -> tuple[dict[str, list[str]], list[str], list[str]]:
+    """Load mappings and test roots, using broad roots for custom layouts."""
+    resolved_architecture = architecture or load_architecture_config(policy_path)
+    section = policy_section(load_policy_object(policy_path, "test architecture"), "test_architecture")
+    mappings = load_project_mappings(policy_path)
+
+    configured_test_roots = section.get("test_roots")
+    if not isinstance(configured_test_roots, list):
+        test_roots = ["test"] if resolved_architecture.is_custom else list(DEFAULT_TEST_ROOTS)
+    else:
+        test_roots = [value.strip() for value in configured_test_roots if isinstance(value, str) and value.strip()]
+
+    configured_integration_roots = section.get("integration_test_roots")
+    if not isinstance(configured_integration_roots, list):
+        integration_roots = [] if resolved_architecture.is_custom else list(DEFAULT_INTEGRATION_TEST_ROOTS)
+    else:
+        integration_roots = [
+            value.strip()
+            for value in configured_integration_roots
+            if isinstance(value, str) and value.strip()
+        ]
+
+    return mappings, test_roots, integration_roots
 
 
 def to_repo_path(path: Path) -> str:
@@ -145,7 +180,14 @@ def first_matching_source_roots(test_dir: Path, suite: str, source_roots: set[st
     return [candidate] if candidate in source_roots else []
 
 
-def discover_project_mappings(repo_root: Path, extra_mappings: dict[str, list[str]] | None = None) -> dict[str, list[str]]:
+def discover_project_mappings(
+    repo_root: Path,
+    extra_mappings: dict[str, list[str]] | None = None,
+    architecture: ArchitectureConfig | None = None,
+) -> dict[str, list[str]]:
+    if architecture is not None and architecture.is_custom:
+        return dict(sorted((extra_mappings or {}).items()))
+
     source_roots = discover_source_roots(repo_root)
     mappings: dict[str, list[str]] = {}
 
@@ -181,7 +223,19 @@ def discover_project_mappings(repo_root: Path, extra_mappings: dict[str, list[st
     return mappings
 
 
-def validate_test_file_locations(repo_root: Path) -> list[str]:
+def validate_test_file_locations(
+    repo_root: Path,
+    architecture: ArchitectureConfig | None = None,
+    project_mappings: dict[str, list[str]] | None = None,
+    test_roots: list[str] | None = None,
+) -> list[str]:
+    if architecture is not None and architecture.is_custom:
+        return validate_configured_test_file_locations(
+            repo_root,
+            project_mappings or {},
+            test_roots or ["test"],
+        )
+
     errors: list[str] = []
     source_roots = discover_source_roots(repo_root)
 
@@ -219,8 +273,44 @@ def validate_test_file_locations(repo_root: Path) -> list[str]:
     return errors
 
 
-def validate_integration_test_naming(test_project: str, test_dir: Path) -> list[str]:
-    if not test_project.startswith("test/Integration"):
+def validate_configured_test_file_locations(
+    repo_root: Path,
+    project_mappings: dict[str, list[str]],
+    test_roots: list[str],
+) -> list[str]:
+    errors: list[str] = []
+    mapping_paths = {
+        (repo_root / test_project).resolve(): (test_project, source_projects)
+        for test_project, source_projects in project_mappings.items()
+    }
+
+    for test_root_text in test_roots:
+        test_root = (repo_root / test_root_text).resolve()
+        if not test_root.exists():
+            continue
+        for file_path in iter_cs_files(test_root):
+            absolute_file = file_path.resolve()
+            matching = [path for path in mapping_paths if is_path_within(absolute_file, path)]
+            if matching:
+                continue
+            errors.append(
+                f"{to_repo_path(file_path)}: Test file is not covered by any configured test project mapping."
+            )
+
+    return errors
+
+
+def validate_integration_test_naming(
+    test_project: str,
+    test_dir: Path,
+    integration_test_roots: list[str] | tuple[str, ...] | None = None,
+) -> list[str]:
+    integration_roots = integration_test_roots or DEFAULT_INTEGRATION_TEST_ROOTS
+    normalized_project = test_project.replace("\\", "/").rstrip("/")
+    if not any(
+        normalized_project == root or normalized_project.startswith(f"{root.rstrip('/')}/")
+        for root in integration_roots
+    ):
         return []
 
     errors: list[str] = []
@@ -244,6 +334,14 @@ def validate_integration_test_naming(test_project: str, test_dir: Path) -> list[
     return errors
 
 
+def is_path_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -253,13 +351,27 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    extra_mappings = load_project_mappings(Path(args.policy_path))
-    project_mappings = discover_project_mappings(REPO_ROOT, extra_mappings)
+    policy_path = Path(args.policy_path)
+    try:
+        architecture = load_architecture_config(policy_path)
+        extra_mappings, test_roots, integration_test_roots = load_test_architecture_config(
+            policy_path,
+            architecture,
+        )
+    except ValueError as ex:
+        print(f"Test architecture check failed: {ex}", file=sys.stderr)
+        return 2
+    project_mappings = discover_project_mappings(REPO_ROOT, extra_mappings, architecture)
     if not project_mappings:
         print("Test architecture check failed: no active test project mappings discovered.", file=sys.stderr)
         return 1
 
-    errors: list[str] = validate_test_file_locations(REPO_ROOT)
+    errors: list[str] = validate_test_file_locations(
+        REPO_ROOT,
+        architecture=architecture,
+        project_mappings=project_mappings,
+        test_roots=test_roots,
+    )
 
     for test_project, source_projects in project_mappings.items():
         test_dir = REPO_ROOT / test_project
@@ -273,7 +385,7 @@ def main() -> int:
                 errors.append(f"Missing mapped source directory for {test_project}: {source_project}")
 
         if test_dir.exists():
-            errors.extend(validate_integration_test_naming(test_project, test_dir))
+            errors.extend(validate_integration_test_naming(test_project, test_dir, integration_test_roots))
 
     if errors:
         print("Test architecture check failed.", file=sys.stderr)

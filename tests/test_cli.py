@@ -109,6 +109,57 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(payload["parser"], "python")
 
+    def test_custom_architecture_policy_reaches_boundary_child_command(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            core = root / "src" / "Core"
+            api = root / "src" / "Api"
+            core.mkdir(parents=True)
+            api.mkdir(parents=True)
+            (core / "Core.csproj").write_text("<Project />", encoding="utf-8")
+            (api / "Api.csproj").write_text(
+                "<Project><ItemGroup><ProjectReference Include=\"..\\Core\\Core.csproj\" /></ItemGroup></Project>",
+                encoding="utf-8",
+            )
+            policy_path = root / "quality_policy.json"
+            policy_path.write_text(
+                json.dumps(
+                    {
+                        "architecture": {
+                            "units": {
+                                "Core": {
+                                    "source_roots": ["src/Core"],
+                                    "namespace_prefixes": ["Example.Core"],
+                                    "allowed_dependencies": [],
+                                },
+                                "Api": {
+                                    "source_roots": ["src/Api"],
+                                    "namespace_prefixes": ["Example.Api"],
+                                    "allowed_dependencies": ["Core"],
+                                },
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result, payload = self._run_cli(
+                [
+                    "--repo-root",
+                    str(root),
+                    "--policy-path",
+                    str(policy_path),
+                    "--output",
+                    "json",
+                    "architectural-boundaries",
+                ]
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(payload["status"], "passed")
+        self.assertIn("Architectural boundary check passed", payload["stdout"])
+
     def test_strict_roslyn_mode_rejects_commands_without_roslyn_support(self) -> None:
         result, payload = self._run_cli(
             ["--repo-root", str(Path.cwd()), "--parser", "roslyn", "--output", "json", "code-size"]

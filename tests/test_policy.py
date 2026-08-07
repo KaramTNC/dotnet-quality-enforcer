@@ -81,6 +81,59 @@ class PolicyValidationTests(unittest.TestCase):
             with self.assertRaisesRegex(PolicyValidationError, "cannot depend on itself"):
                 validate_policy_file(path)
 
+    def test_accepts_custom_architecture_units(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "quality_policy.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "architecture": {
+                            "units": {
+                                "Core": {
+                                    "source_roots": ["src/Core"],
+                                    "namespace_prefixes": ["Example.Core"],
+                                    "allowed_dependencies": [],
+                                },
+                                "Api": {
+                                    "source_roots": ["src/Api"],
+                                    "namespace_prefixes": ["Example.Api"],
+                                    "allowed_dependencies": ["Core"],
+                                },
+                            }
+                        },
+                        "test_architecture": {
+                            "test_roots": ["tests"],
+                            "integration_test_roots": ["tests/Integration"],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            validate_policy_file(path)
+
+    def test_rejects_custom_architecture_unknown_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "quality_policy.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "architecture": {
+                            "units": {
+                                "Core": {
+                                    "source_roots": ["src/Core"],
+                                    "allowed_dependencies": ["Missing"],
+                                }
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(PolicyValidationError, "architecture.units"):
+                validate_policy_file(path)
+
 
 if __name__ == "__main__":
     unittest.main()

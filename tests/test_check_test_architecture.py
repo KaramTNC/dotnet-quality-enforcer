@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from dotnet_quality_gates.architecture import ArchitectureConfig, ArchitectureUnit
 from dotnet_quality_gates.quality import check_test_architecture
 
 
@@ -81,6 +82,94 @@ class CheckTestArchitectureTests(unittest.TestCase):
             mappings = self.mod.load_project_mappings(policy_path)
 
         self.assertEqual(mappings, {})
+
+    def test_custom_architecture_maps_arbitrary_test_layouts(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "src" / "Features" / "Orders"
+            test_project = root / "tests" / "Unit" / "Features" / "Orders"
+            source.mkdir(parents=True)
+            test_project.mkdir(parents=True)
+            (source / "Order.cs").write_text("namespace Product.Features.Orders;", encoding="utf-8")
+            (test_project / "OrderTests.cs").write_text("public class OrderTests {}", encoding="utf-8")
+            policy_path = root / "policy.json"
+            policy_path.write_text(
+                json.dumps(
+                    {
+                        "architecture": {
+                            "units": {
+                                "Orders": {
+                                    "source_roots": ["src/Features/Orders"],
+                                    "namespace_prefixes": ["Product.Features.Orders"],
+                                    "allowed_dependencies": [],
+                                }
+                            }
+                        },
+                        "test_architecture": {
+                            "test_roots": ["tests"],
+                            "project_mappings": {
+                                "tests/Unit/Features/Orders": ["src/Features/Orders"]
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            original_repo_root = self.mod.REPO_ROOT
+            self.mod.REPO_ROOT = root
+            try:
+                architecture = self.mod.load_architecture_config(policy_path)
+                mappings, test_roots, integration_roots = self.mod.load_test_architecture_config(
+                    policy_path,
+                    architecture,
+                )
+                discovered = self.mod.discover_project_mappings(root, mappings, architecture)
+                errors = self.mod.validate_test_file_locations(
+                    root,
+                    architecture=architecture,
+                    project_mappings=discovered,
+                    test_roots=test_roots,
+                )
+            finally:
+                self.mod.REPO_ROOT = original_repo_root
+
+        self.assertEqual(discovered, {"tests/Unit/Features/Orders": ["src/Features/Orders"]})
+        self.assertEqual(test_roots, ["tests"])
+        self.assertEqual(integration_roots, [])
+        self.assertEqual(errors, [])
+
+    def test_custom_architecture_reports_unmapped_test_files(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "tests" / "Unit" / "Features" / "Orders").mkdir(parents=True)
+            test_file = root / "tests" / "Unit" / "Features" / "Orders" / "OrderTests.cs"
+            test_file.write_text("public class OrderTests {}", encoding="utf-8")
+            original_repo_root = self.mod.REPO_ROOT
+            self.mod.REPO_ROOT = root
+            try:
+                architecture = ArchitectureConfig(
+                    units=(
+                        ArchitectureUnit(
+                            name="Orders",
+                            source_roots=("src/Features/Orders",),
+                            namespace_prefixes=("Product.Features.Orders",),
+                            allowed_dependencies=frozenset(),
+                        ),
+                    ),
+                    is_custom=True,
+                )
+                errors = self.mod.validate_test_file_locations(
+                    root,
+                    architecture=architecture,
+                    project_mappings={},
+                    test_roots=["tests"],
+                )
+            finally:
+                self.mod.REPO_ROOT = original_repo_root
+
+        self.assertEqual(len(errors), 1)
+        self.assertIn("not covered by any configured test project mapping", errors[0])
 
     def test_discover_project_mappings_uses_current_onion_layout(self) -> None:
         with tempfile.TemporaryDirectory() as td:
