@@ -1,5 +1,5 @@
 name: .NET Quality Enforcer
-description: Run configurable Python and C#/.NET code quality gates in GitHub Actions.
+description: Run configurable multi-language code quality gates in GitHub Actions.
 author: KaramTNC
 branding:
   color: blue
@@ -25,6 +25,10 @@ inputs:
     description: "C# parser mode: auto, python, or roslyn."
     required: false
     default: auto
+  language:
+    description: "Source language adapter: auto, csharp, python, java, kotlin, typescript, javascript, go, or rust."
+    required: false
+    default: csharp
   roslyn-command:
     description: Optional Roslyn helper command. Set automatically when install-roslyn is true.
     required: false
@@ -99,6 +103,7 @@ runs:
         ACTION_REPO_ROOT: ${{ inputs.repo-root }}
         ACTION_POLICY_PATH: ${{ inputs.policy-path }}
         ACTION_PARSER: ${{ inputs.parser }}
+        ACTION_LANGUAGE: ${{ inputs.language }}
         ACTION_ROSLYN_COMMAND: ${{ inputs.roslyn-command }}
         ACTION_INSTALL_ROSLYN: ${{ inputs.install-roslyn }}
         ACTION_TIMEOUT: ${{ inputs.timeout }}
@@ -113,6 +118,7 @@ runs:
         ACTION_REPO_ROOT: ${{ inputs.repo-root }}
         ACTION_POLICY_PATH: ${{ inputs.policy-path }}
         ACTION_PARSER: ${{ inputs.parser }}
+        ACTION_LANGUAGE: ${{ inputs.language }}
         ACTION_ROSLYN_COMMAND: ${{ inputs.roslyn-command }}
         ACTION_INSTALL_ROSLYN: ${{ inputs.install-roslyn }}
         ACTION_TIMEOUT: ${{ inputs.timeout }}

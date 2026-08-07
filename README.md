@@ -5,9 +5,45 @@
 [![Latest release](https://img.shields.io/github/v/release/KaramTNC/dotnet-quality-enforcer?sort=semver)](https://github.com/KaramTNC/dotnet-quality-enforcer/releases/latest)
 [![GitHub release downloads](https://img.shields.io/github/downloads/KaramTNC/dotnet-quality-enforcer/total.svg?label=GitHub%20release%20downloads)](https://github.com/KaramTNC/dotnet-quality-enforcer/releases)
 
-Installable, configuration-driven quality gates for C# and .NET repositories.
+Installable, configuration-driven quality gates for C#, Python, Java, Kotlin, TypeScript, JavaScript, Go, and Rust repositories.
 
 This project is pre-1.0. Feedback from teams using incremental quality enforcement is welcome.
+
+The implementation remains Python, while source analysis is selected through language adapters. The supported
+canonical language names are `csharp`, `python`, `java`, `kotlin`, `typescript`, `javascript`, `go`, and `rust`.
+`c#`, `cs`, `py`, `kt`, `kts`, and the legacy spelling `kotlyn` are accepted aliases, as are `ts`, `tsx`, `js`,
+`jsx`, `golang`, and `rs`. Use `--language` (or the `language` GitHub Action input) when a repository contains more
+than one supported language or when automatic discovery should be constrained.
+
+## Language adapter architecture
+
+The core owns policy validation, process orchestration, Git diff parsing, coverage-file handling, baselines, and
+normalized reporting. Adapters own file discovery and syntax-dependent metrics. The C# adapter delegates to the
+existing Roslyn/fallback analyzers, so existing .NET behavior remains intact. The Python, Java, Kotlin, TypeScript,
+JavaScript, Go, and Rust adapters provide dependency-free source discovery, type/method size metrics, and
+changed-method complexity metrics.
+
+To add another language:
+
+1. Add its canonical name, aliases, and extensions in `src/dotnet_quality_gates/languages/base.py`.
+2. Implement `LanguageAdapter` in `languages/generic.py` or a dedicated module, including discovery and normalized
+   `LanguageMetric`/`ComplexityMetric` output.
+3. Register the adapter in `adapters_for_language` and add focused parser, discovery, CLI, and regression tests.
+4. Keep policy, diff, coverage, and reporting changes in the language-neutral core unless the new language needs a
+   genuinely language-specific rule.
+
+Current adapter file coverage:
+
+| Adapter | Extensions |
+| --- | --- |
+| C# | `.cs` |
+| Python | `.py` |
+| Java | `.java` |
+| Kotlin | `.kt`, `.kts` |
+| TypeScript | `.ts`, `.tsx` |
+| JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` |
+| Go | `.go` |
+| Rust | `.rs` |
 
 ## What it does
 
@@ -26,11 +62,11 @@ Checks run against an explicit repository working directory. A policy file is op
 
 ## Quality metrics and rules
 
-The enforcer combines numeric maintainability metrics with structural quality rules. Thresholds below are built-in defaults and can be overridden in `.quality/quality_policy.json`. Configured expected coverage packages must be present in the merged report; missing aliases fail the repository coverage gate.
+The enforcer combines numeric maintainability metrics with structural quality rules. Thresholds below are built-in defaults and can be overridden in `.quality/quality_policy.json`.
 
 | Area | What is measured or enforced | Built-in default |
 | --- | --- | --- |
-| Code size | Physical lines in each method, type, and source file, excluding XML documentation comment lines from source-file totals; partial types are also aggregated across files. | Warn at 40/250/300 lines and fail at 60/350/450 lines for methods/types/files respectively. |
+| Code size | Physical lines in each method, type, and source file. XML documentation comments are excluded from source-file totals; partial types are aggregated across files. | Warn at 40/250/300 lines and fail at 60/350/450 lines for methods/types/files respectively. |
 | Diff complexity | Changed production methods are checked for [cyclomatic complexity](https://docs.sonarsource.com/sonarqube-server/user-guide/code-metrics/metrics-definition#cyclomatic-complexity), [cognitive complexity](https://docs.sonarsource.com/sonarqube-server/user-guide/code-metrics/metrics-definition#cognitive-complexity), and [CRAP score](https://testing.googleblog.com/2011/02/this-code-is-crap.html). | Cyclomatic <= 10, cognitive <= 10, CRAP <= 30.00. No file-count limit by default. |
 | CRAP score | Combines cyclomatic complexity with method coverage: `complexity² × (1 - coverage)³ + complexity`. Higher complexity and lower coverage produce a higher risk score. | Maximum 30.00. Coverage comes from the supplied Cobertura report. |
 | Diff coverage | Executable changed-line coverage and, when configured, changed-branch coverage. | Line coverage >= 80%; branch coverage is optional. No file-count limit by default. |
@@ -59,7 +95,7 @@ Diff complexity and diff coverage analyze the full changed production set by def
 ## Requirements
 
 - [Python](https://www.python.org/) 3.10 or newer
-- A C#/.NET repository to analyze
+- A repository containing C#, Python, Java, Kotlin, TypeScript, JavaScript, Go, and/or Rust source files
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) only when using the optional [Roslyn](https://learn.microsoft.com/en-us/dotnet/csharp/roslyn-sdk/) parser
 - [ReportGenerator](https://github.com/danielpalme/ReportGenerator) only when using `coverage-report`
 
@@ -82,7 +118,7 @@ steps:
 
 The `v0` compatibility tag tracks the latest 0.x release. For production workflows, replace it with the release you have reviewed or an immutable commit SHA.
 
-The action installs the package, runs the selected gate, and exposes `result`, `status`, `returncode`, `violations`, `blocking-errors`, and `warnings` outputs. Each invocation also prints a compact status block and appends a Markdown section to `GITHUB_STEP_SUMMARY`. Calling the action once per gate therefore creates one centralized job summary containing the blocking errors from every gate. Set `install-roslyn: true` to install the .NET 8 SDK and build the bundled Roslyn helper before running a Roslyn-enabled gate. The `coverage-report` command still requires [ReportGenerator](https://github.com/danielpalme/ReportGenerator) on the runner.
+The action installs the package, runs the selected gate, and exposes `result`, `status`, `returncode`, `violations`, `blocking-errors`, and `warnings` outputs. Each invocation also prints a compact status block and appends a Markdown section to `GITHUB_STEP_SUMMARY`. Set `install-roslyn: true` to install the .NET 8 SDK and build the bundled Roslyn helper before running a Roslyn-enabled gate. The `coverage-report` command still requires [ReportGenerator](https://github.com/danielpalme/ReportGenerator) on the runner.
 
 The action's `result` output uses the same `schema_version: 1` JSON envelope as the command-line interface:
 
@@ -102,13 +138,13 @@ cd dotnet-quality-enforcer
 python -m pip install .
 ```
 
-The versioned release workflow also supports publishing the package to PyPI through trusted publishing. Once the repository's `pypi` environment is connected to a PyPI trusted publisher, install the CLI with:
+Tagged releases can publish the package to PyPI through trusted publishing. After connecting the repository's `pypi` environment to a PyPI trusted publisher, install the CLI with:
 
 ```bash
 python -m pip install dotnet-quality-gates
 ```
 
-The one-time PyPI trusted-publisher configuration should use owner `KaramTNC`, repository `dotnet-quality-enforcer`, workflow `package.yml`, and environment `pypi`. The workflow uses short-lived OIDC credentials; no PyPI token is stored in the repository.
+The workflow uses short-lived OIDC credentials; no PyPI token is stored in the repository.
 
 For local development, install the development tools as well:
 
@@ -138,18 +174,34 @@ dotnet-quality public-api-documentation \
   --baseline-path .quality/baselines/public_api_documentation_baseline.txt
 ```
 
+The default language is `csharp` for backward compatibility with existing .NET workflows. Select another adapter
+explicitly, or use `auto` for mixed-language discovery:
+
+```bash
+dotnet-quality --language python code-size --scope full
+dotnet-quality --language java diff-complexity --base origin/main --coverage coverage.xml
+dotnet-quality --language kotlyn code-size --scope full  # alias for Kotlin
+dotnet-quality --language typescript code-size --scope full
+dotnet-quality --language go diff-complexity --base origin/main --coverage coverage.xml
+dotnet-quality --language rust code-size --scope full
+```
+
+With `--language auto`, source roots are scanned for supported extensions and each discovered adapter is applied.
+This makes mixed-language repositories work for language-neutral gates while language-specific .NET rules continue
+to operate only on C# sources.
+
 Available commands:
 
 | Command | Purpose |
 | --- | --- |
 | `architectural-boundaries` | Validate project and namespace dependency boundaries. |
-| `code-size` | Validate C# method, type, and file size. |
+| `code-size` | Validate method, type, and file size for supported languages. |
 | `diff-complexity` | Validate changed-method complexity and CRAP scores. |
 | `diff-coverage` | Validate changed-line and changed-branch coverage. |
 | `namespace-layout` | Validate source namespaces against their paths. |
 | `public-api-documentation` | Validate XML documentation for public C# APIs. |
 | `repo-coverage` | Validate Cobertura repository and package coverage. |
-| `source-type-layout` | Validate C# source type/file layout. |
+| `source-type-layout` | Validate source type/file layout for supported languages. |
 | `test-architecture` | Validate source and test project placement. |
 | `test-conventions` | Validate source-to-test naming and convention rules. |
 | `coverage-report` | Generate a ReportGenerator coverage report. |
@@ -162,9 +214,9 @@ dotnet-quality --output json code-size --scope full
 
 The JSON envelope has `schema_version: 1`, a `status`, `returncode`, `violations`, normalized `blocking_errors`, `warnings`, repository metadata, and the original `stdout`/`stderr` for compatibility. `blocking_errors` is the concise list to display when a gate blocks the build; `violations` remains available for consumers that need the legacy extracted detail list. Policy validation is strict: unknown sections and keys are rejected so a misspelled setting cannot silently fall back to a default.
 
-Most commands use `.quality/quality_policy.json` by default when it exists. The top-level command validates policy structure and value types before starting a gate and reports the exact invalid key. Baseline files contain known violations that are intentionally accepted by the consuming repository; keep those files in the consuming repository rather than in this package.
+Most commands use `.quality/quality_policy.json` by default when it exists. The top-level command validates known policy keys before starting a gate and reports the exact invalid key. Baseline files contain known violations that are intentionally accepted by the consuming repository; keep those files in the consuming repository rather than in this package.
 
-The top-level options also support `--timeout SECONDS` for external tools and `--parser auto|python|roslyn`. The default `auto` mode uses Roslyn only when configured; `python` forces the dependency-free parser, and strict `roslyn` mode currently applies to `source-type-layout` and `test-conventions` and fails if the helper is unavailable or cannot analyze a file.
+The top-level options also support `--timeout SECONDS` for external tools and `--parser auto|python|roslyn`. The default `auto` mode uses Roslyn only when configured; `python` forces the dependency-free parser, and `roslyn` fails if the helper is unavailable or cannot analyze a file.
 
 ## Optional Roslyn parsing
 
@@ -175,7 +227,7 @@ dotnet build tools/roslyn-analyzer/DotnetQualityRoslyn.csproj -c Release
 export DOTNET_QUALITY_ROSLYN_COMMAND="dotnet tools/roslyn-analyzer/bin/Release/net8.0/DotnetQualityRoslyn.dll"
 ```
 
-When configured, source-type and unit-test convention analysis uses Roslyn. In `auto` mode, an unavailable helper can use the built-in parser; use `roslyn` when a gate must fail rather than degrade to the fallback parser. The fallback parser is dependency-free but should be treated as a compatibility mode for modern C# syntax.
+When configured, source-type and unit-test convention analysis uses Roslyn. If the helper is unavailable or returns an error, the built-in parser is used instead.
 
 Versioned releases also include a framework-dependent Roslyn helper archive. It requires the .NET 8 runtime but avoids rebuilding the helper locally.
 
@@ -193,11 +245,18 @@ python -m coverage report
 ruff check src tests action_runner.py
 mypy src action_runner.py
 pip-audit .
+
+# Run the same language-neutral gates used by this repository's CI job.
+dotnet-quality --repo-root . --language auto --policy-path .quality/quality_policy.json code-size --scope full
+dotnet-quality --repo-root . --language auto --policy-path .quality/quality_policy.json source-type-layout
+dotnet-quality --repo-root . --language auto --policy-path .quality/quality_policy.json namespace-layout
+dotnet-quality --repo-root . --language auto --policy-path .quality/quality_policy.json architectural-boundaries
+dotnet-quality --repo-root . --language auto --policy-path .quality/quality_policy.json public-api-documentation
 ```
 
-The test suite also includes cross-platform action argument, policy-validation, coverage, XML-input, and JSON-output contract checks. Run the Roslyn build locally when changing the helper or parser integration.
+These checks use [Ruff](https://docs.astral.sh/ruff/), [mypy](https://mypy.readthedocs.io/), [pip-audit](https://github.com/pypa/pip-audit/), and the enforcer itself. The test suite also includes cross-platform action argument, policy-validation, coverage, XML-input, and JSON-output contract checks. The repository policy is stored in [`.quality/quality_policy.json`](.quality/quality_policy.json), so CI and local runs share the same thresholds. Run the Roslyn build locally when changing the helper or parser integration.
 
-Pull requests targeting `staging` or `main` run the test suite on Python 3.10 through 3.13, plus static analysis and a Roslyn helper smoke test. Successful pushes to `main` build distributions and create a GitHub Release named `main-<commit-sha>`. Version tags matching `vX.Y.Z` create versioned releases and publish the Python package when PyPI trusted publishing is configured. The release workflow requires GitHub Actions permission to write repository contents.
+Pull requests targeting `staging` or `main` run the test suite on Python 3.10 through 3.13, static analysis, the self-quality gates, and a Roslyn helper smoke test. Successful pushes to `main` build distributions and create a GitHub Release named `main-<commit-sha>`. Version tags matching `vX.Y.Z` create versioned releases and publish the Python package when PyPI trusted publishing is configured. The release workflow requires GitHub Actions permission to write repository contents.
 
 The package version is derived from Git tags with [`setuptools-scm`](https://setuptools-scm.readthedocs.io/); source checkouts without package metadata use `0.0.0+unknown`.
 

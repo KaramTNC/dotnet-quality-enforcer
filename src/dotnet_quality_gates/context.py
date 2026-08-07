@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
 
+from dotnet_quality_gates.languages import normalize_language
+
 PARSER_MODES = ("auto", "python", "roslyn")
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 300.0
 DEFAULT_POLICY_RELATIVE_PATH = ".quality/quality_policy.json"
@@ -41,6 +43,7 @@ class ExecutionContext:
     repo_root: Path
     policy_path: Path
     parser_mode: str = "auto"
+    language: str = "csharp"
     command_timeout_seconds: float = DEFAULT_COMMAND_TIMEOUT_SECONDS
 
     @classmethod
@@ -65,10 +68,15 @@ class ExecutionContext:
             repo_root,
         ).resolve()
         parser_mode = normalize_parser_mode(environment.get("DOTNET_QUALITY_PARSER", "auto"))
+        try:
+            language = normalize_language(environment.get("DOTNET_QUALITY_LANGUAGE", "csharp"))
+        except ValueError:
+            language = "csharp"
         return cls(
             repo_root=repo_root,
             policy_path=policy_path,
             parser_mode=parser_mode,
+            language=language,
             command_timeout_seconds=_parse_timeout(environment.get("DOTNET_QUALITY_COMMAND_TIMEOUT")),
         )
 
@@ -77,6 +85,7 @@ class ExecutionContext:
         child["DOTNET_QUALITY_REPO_ROOT"] = str(self.repo_root)
         child["DOTNET_QUALITY_POLICY_PATH"] = str(self.policy_path)
         child["DOTNET_QUALITY_PARSER"] = self.parser_mode
+        child["DOTNET_QUALITY_LANGUAGE"] = self.language
         child["DOTNET_QUALITY_COMMAND_TIMEOUT"] = str(self.command_timeout_seconds)
         return child
 

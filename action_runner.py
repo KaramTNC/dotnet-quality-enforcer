@@ -111,6 +111,8 @@ def build_command(inputs: Mapping[str, str], action_path: str) -> list[str]:
     if policy_path:
         command.extend(["--policy-path", policy_path])
 
+    command.extend(["--language", inputs.get("language", "csharp")])
+
     roslyn_command = inputs.get("roslyn_command", "").strip()
     if not roslyn_command and inputs.get("install_roslyn", "false").lower() == "true":
         helper_path = Path(action_path) / "tools" / "roslyn-analyzer" / "bin" / "Release" / "net8.0" / "DotnetQualityRoslyn.dll"
@@ -150,6 +152,7 @@ def _inputs() -> dict[str, str]:
         "repo_root": os.environ.get("ACTION_REPO_ROOT", "."),
         "policy_path": os.environ.get("ACTION_POLICY_PATH", ""),
         "parser": os.environ.get("ACTION_PARSER", "auto"),
+        "language": os.environ.get("ACTION_LANGUAGE", "csharp"),
         "roslyn_command": os.environ.get("ACTION_ROSLYN_COMMAND", ""),
         "install_roslyn": os.environ.get("ACTION_INSTALL_ROSLYN", "false"),
         "timeout": os.environ.get("ACTION_TIMEOUT", "300"),

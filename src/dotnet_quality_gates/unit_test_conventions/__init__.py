@@ -6,21 +6,17 @@ from .constants import (
     REPO_ROOT,
 )
 from .discovery import iter_csharp_files
+from .masking import mask_comments_and_strings
 from .models import SourceClassInfo, TestClassInfo, TestMethodInfo
 from .parsing import (
     compute_brace_depths,
     find_matching_brace,
     is_excluded_source_file,
     iter_cs_files,
-    mask_comments_and_strings,
-    normalize_region_name,
     parse_base_types,
     parse_exposed_methods,
-    parse_regions_and_methods,
-    parse_source_classes,
     parse_targetable_members,
     parse_test_classes,
-    parse_test_method_name,
 )
 from .policy import load_default_source_include_roots
 from .roslyn import (
@@ -31,6 +27,8 @@ from .roslyn import (
     analyze_csharp_files,
     parser_mode,
 )
+from .source_parsing import parse_source_classes
+from .test_method_parsing import normalize_region_name, parse_regions_and_methods, parse_test_method_name
 from .validation import (
     build_include_to_test_root_map,
     combine_partial_source_classes,

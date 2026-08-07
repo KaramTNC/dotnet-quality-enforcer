@@ -5,31 +5,14 @@ import os
 import shlex
 import subprocess
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 
 from dotnet_quality_gates.context import PARSER_MODES, current_context
 
 from .models import SourceClassInfo, TestClassInfo, TestMethodInfo
-
-
-class RoslynError(RuntimeError):
-    """Raised when strict Roslyn parsing cannot analyze a file."""
-
-
-@dataclass(frozen=True)
-class RoslynDiagnostic:
-    diagnostic_id: str
-    message: str
-    line: int
-
-
-@dataclass(frozen=True)
-class RoslynFileAnalysis:
-    source_classes: list[SourceClassInfo]
-    test_classes: list[TestClassInfo]
-    type_declarations: list[tuple[str, int, str]]
-    diagnostics: list[RoslynDiagnostic]
+from .roslyn_diagnostic import RoslynDiagnostic
+from .roslyn_error import RoslynError
+from .roslyn_file_analysis import RoslynFileAnalysis
 
 
 def _configured_command() -> list[str] | None:
@@ -39,35 +22,34 @@ def _configured_command() -> list[str] | None:
     return _split_windows_command_line(configured) if os.name == "nt" else shlex.split(configured)
 
 
-def _split_windows_command_line(value: str) -> list[str]:
-    """Split a Windows command line using Windows quoting and backslash rules."""
-    if os.name == "nt":
+def _native_windows_arguments(value: str) -> list[str] | None:
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+
+        argc = ctypes.c_int()
+        win_dll = getattr(ctypes, "WinDLL", None)
+        if not callable(win_dll):
+            return None
+        shell32 = win_dll("shell32", use_last_error=True)
+        shell32.CommandLineToArgvW.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_int)]
+        shell32.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
+        kernel32 = win_dll("kernel32", use_last_error=True)
+        kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+        kernel32.LocalFree.restype = ctypes.c_void_p
+        argv = shell32.CommandLineToArgvW(value, ctypes.byref(argc))
+        if not argv:
+            return None
         try:
-            import ctypes
+            return [argv[index] for index in range(argc.value)]
+        finally:
+            kernel32.LocalFree(argv)
+    except (AttributeError, ImportError, OSError, TypeError):
+        return None
 
-            argc = ctypes.c_int()
-            win_dll = getattr(ctypes, "WinDLL", None)
-            if not callable(win_dll):
-                raise OSError("WinDLL is unavailable on this platform")
-            shell32 = win_dll("shell32", use_last_error=True)
-            shell32.CommandLineToArgvW.argtypes = [
-                ctypes.c_wchar_p,
-                ctypes.POINTER(ctypes.c_int),
-            ]
-            shell32.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
-            kernel32 = win_dll("kernel32", use_last_error=True)
-            kernel32.LocalFree.argtypes = [ctypes.c_void_p]
-            kernel32.LocalFree.restype = ctypes.c_void_p
-            argv = shell32.CommandLineToArgvW(value, ctypes.byref(argc))
-            if not argv:
-                raise OSError("CommandLineToArgvW failed")
-            try:
-                return [argv[index] for index in range(argc.value)]
-            finally:
-                kernel32.LocalFree(argv)
-        except (AttributeError, ImportError, OSError, TypeError):
-            pass
 
+def _split_windows_fallback(value: str) -> list[str]:
     arguments: list[str] = []
     current: list[str] = []
     in_quotes = False
@@ -114,6 +96,11 @@ def _split_windows_command_line(value: str) -> list[str]:
     return arguments
 
 
+def _split_windows_command_line(value: str) -> list[str]:
+    """Split a Windows command line using Windows quoting and backslash rules."""
+    return _native_windows_arguments(value) or _split_windows_fallback(value)
+
+
 def parser_mode(value: str | None = None) -> str:
     selected = (value or os.environ.get("DOTNET_QUALITY_PARSER", "auto")).strip().lower()
     if selected not in PARSER_MODES:
@@ -131,59 +118,62 @@ def analyze_csharp_file(path: Path, mode: str | None = None) -> RoslynFileAnalys
     return analyze_csharp_files([path], mode).get(path.resolve())
 
 
+def _analyze_batch(
+    batch: list[Path], command: list[str], selected_mode: str
+) -> dict[Path, RoslynFileAnalysis] | None:
+    mode_flag = "--file" if len(batch) == 1 else "--files"
+    completed = subprocess.run(
+        [*command, mode_flag, *[str(path) for path in batch]],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=current_context().command_timeout_seconds,
+    )
+    if completed.returncode != 0:
+        if selected_mode == "roslyn":
+            detail = completed.stderr.strip() or f"helper exited with code {completed.returncode}"
+            raise RoslynError(f"Roslyn helper failed: {detail}")
+        print("Warning: Roslyn helper failed; falling back to the built-in C# parser.", file=sys.stderr)
+        return None
+
+    payload = json.loads(completed.stdout)
+    raw_files = [payload] if len(batch) == 1 else payload.get("files", [])
+    if not isinstance(raw_files, list):
+        raise TypeError("Roslyn batch response must contain a 'files' list")
+    analyses: dict[Path, RoslynFileAnalysis] = {}
+    for raw_file in raw_files:
+        if not isinstance(raw_file, dict):
+            raise TypeError("Invalid Roslyn file response")
+        raw_path = str(raw_file.get("path", batch[0])) if len(batch) > 1 else str(batch[0])
+        path = Path(raw_path).resolve()
+        if path not in batch:
+            raise ValueError(f"Roslyn response returned an unexpected path: {raw_path}")
+        analyses[path] = _parse_analysis(path, raw_file)
+    missing = sorted(set(batch) - set(analyses))
+    if missing:
+        raise ValueError(f"Roslyn response omitted files: {', '.join(map(str, missing))}")
+    return analyses
+
+
 def analyze_csharp_files(paths: list[Path], mode: str | None = None) -> dict[Path, RoslynFileAnalysis]:
     """Analyze multiple files with one helper process per batch."""
     selected_mode = parser_mode(mode)
     if selected_mode == "python" or not paths:
         return {}
-
     command = _configured_command()
     if not command:
         if selected_mode == "roslyn":
-            raise RoslynError(
-                "Roslyn parser was requested but DOTNET_QUALITY_ROSLYN_COMMAND is not configured"
-            )
+            raise RoslynError("Roslyn parser was requested but DOTNET_QUALITY_ROSLYN_COMMAND is not configured")
         return {}
-
     normalized_paths = [path.resolve() for path in paths]
     analyses: dict[Path, RoslynFileAnalysis] = {}
     try:
         for start in range(0, len(normalized_paths), 64):
             batch = normalized_paths[start : start + 64]
-            mode_flag = "--file" if len(batch) == 1 else "--files"
-            completed = subprocess.run(
-                [*command, mode_flag, *[str(path) for path in batch]],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=current_context().command_timeout_seconds,
-            )
-            if completed.returncode != 0:
-                if selected_mode == "roslyn":
-                    detail = completed.stderr.strip() or f"helper exited with code {completed.returncode}"
-                    raise RoslynError(f"Roslyn helper failed: {detail}")
-                print(
-                    "Warning: Roslyn helper failed; falling back to the built-in C# parser.",
-                    file=sys.stderr,
-                )
+            batch_analyses = _analyze_batch(batch, command, selected_mode)
+            if batch_analyses is None:
                 return {}
-
-            payload = json.loads(completed.stdout)
-            raw_files = [payload] if len(batch) == 1 else payload.get("files", [])
-            if not isinstance(raw_files, list):
-                raise TypeError("Roslyn batch response must contain a 'files' list")
-            for raw_file in raw_files:
-                if not isinstance(raw_file, dict):
-                    raise TypeError("Invalid Roslyn file response")
-                raw_path = str(raw_file.get("path", batch[0])) if len(batch) > 1 else str(batch[0])
-                path = Path(raw_path).resolve()
-                if path not in batch:
-                    raise ValueError(f"Roslyn response returned an unexpected path: {raw_path}")
-                analyses[path] = _parse_analysis(path, raw_file)
-
-            if len(analyses) < start + len(batch):
-                missing = sorted(set(batch) - set(analyses))
-                raise ValueError(f"Roslyn response omitted files: {', '.join(map(str, missing))}")
+            analyses.update(batch_analyses)
         return analyses
     except subprocess.TimeoutExpired as ex:
         if selected_mode == "roslyn":

@@ -139,7 +139,7 @@ def ratio(covered: int, valid: int) -> float:
     return 1.0 if valid == 0 else covered / valid
 
 
-def main() -> int:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--coverage", required=True, help="Path to merged Cobertura.xml")
     parser.add_argument(
@@ -171,7 +171,68 @@ def main() -> int:
         default=str(DEFAULT_POLICY_PATH),
         help="Path to code quality policy JSON.",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def _lowest_coverage_details(
+    package_stats: dict[str, tuple[int, int, int, int]],
+    class_stats: dict[str, tuple[int, int, int, int]],
+    expected_packages: set[str],
+) -> tuple[list[tuple[str, int, int, float]], ...]:
+    relevant_package_stats = {name: stats for name, stats in package_stats.items() if name in expected_packages}
+    relevant_class_stats = {
+        name: stats for name, stats in class_stats.items() if name.split(".", 1)[0] in expected_packages
+    }
+    lowest_line_packages = sorted(
+        [(name, covered, valid, ratio(covered, valid)) for name, (covered, valid, _, _) in relevant_package_stats.items()],
+        key=lambda item: item[3],
+    )
+    lowest_line_classes = sorted(
+        [(name, covered, valid, ratio(covered, valid)) for name, (covered, valid, _, _) in relevant_class_stats.items()],
+        key=lambda item: item[3],
+    )
+    lowest_branch_packages = sorted(
+        [(name, covered, valid, ratio(covered, valid)) for name, (_, _, covered, valid) in relevant_package_stats.items() if valid > 0],
+        key=lambda item: item[3],
+    )
+    lowest_branch_classes = sorted(
+        [(name, covered, valid, ratio(covered, valid)) for name, (_, _, covered, valid) in relevant_class_stats.items() if valid > 0],
+        key=lambda item: item[3],
+    )
+    return lowest_line_packages, lowest_line_classes, lowest_branch_packages, lowest_branch_classes
+
+
+def _print_coverage_failure(
+    args: argparse.Namespace,
+    missing_packages: list[str],
+    line_failed: bool,
+    branch_failed: bool,
+    lowest_details: tuple[list[tuple[str, int, int, float]], ...],
+) -> None:
+    lowest_line_packages, lowest_line_classes, lowest_branch_packages, lowest_branch_classes = lowest_details
+    print("Repo coverage gate failed.", file=sys.stderr)
+    if missing_packages:
+        print("Coverage note: expected package aliases not present in merged report:", file=sys.stderr)
+        for name in missing_packages:
+            print(f" - {name}", file=sys.stderr)
+    detail_groups = (
+        (line_failed, "line-coverage", "lines", lowest_line_packages, "packages"),
+        (line_failed, "line-coverage", "lines", lowest_line_classes, "classes"),
+        (branch_failed, "branch-coverage", "branches", lowest_branch_packages, "packages"),
+        (branch_failed, "branch-coverage", "branches", lowest_branch_classes, "classes"),
+    )
+    for failed, label, unit, details, kind in detail_groups:
+        if not failed:
+            continue
+        print(f"Lowest {label} {kind}:", file=sys.stderr)
+        for name, covered, valid, detail_ratio in details[: args.max_details]:
+            print(f" - {name}: {covered}/{valid} {unit} covered ({detail_ratio * 100:.2f}%)", file=sys.stderr)
+        if len(details) > args.max_details:
+            print(f" - ... {len(details) - args.max_details} more {kind}", file=sys.stderr)
+
+
+def main() -> int:
+    args = _parse_args()
 
     coverage_path = Path(args.coverage)
     if not coverage_path.exists():
@@ -198,41 +259,7 @@ def main() -> int:
         return 1
     missing_packages = sorted(expected_packages - set(package_stats))
 
-    relevant_package_stats = {name: stats for name, stats in package_stats.items() if name in expected_packages}
-    relevant_class_stats = {
-        name: stats for name, stats in class_stats.items() if name.split(".", 1)[0] in expected_packages
-    }
-
-    lowest_line_packages = sorted(
-        (
-            (name, covered, valid, ratio(covered, valid))
-            for name, (covered, valid, _, _) in relevant_package_stats.items()
-        ),
-        key=lambda item: item[3],
-    )
-    lowest_line_classes = sorted(
-        (
-            (name, covered, valid, ratio(covered, valid))
-            for name, (covered, valid, _, _) in relevant_class_stats.items()
-        ),
-        key=lambda item: item[3],
-    )
-    lowest_branch_packages = sorted(
-        (
-            (name, covered, valid, ratio(covered, valid))
-            for name, (_, _, covered, valid) in relevant_package_stats.items()
-            if valid > 0
-        ),
-        key=lambda item: item[3],
-    )
-    lowest_branch_classes = sorted(
-        (
-            (name, covered, valid, ratio(covered, valid))
-            for name, (_, _, covered, valid) in relevant_class_stats.items()
-            if valid > 0
-        ),
-        key=lambda item: item[3],
-    )
+    lowest_details = _lowest_coverage_details(package_stats, class_stats, expected_packages)
 
     overall_line_ratio = ratio(*overall_line)
     print(f"Repo line coverage: {overall_line_ratio * 100:.2f}% (threshold {line_threshold * 100:.2f}%)")
@@ -256,51 +283,7 @@ def main() -> int:
         print("Repo coverage gate passed.")
         return 0
 
-    print("Repo coverage gate failed.", file=sys.stderr)
-
-    if missing_packages:
-        print("Expected package aliases were not present in the merged report:", file=sys.stderr)
-        for name in missing_packages:
-            print(f" - {name}", file=sys.stderr)
-
-    if line_failed:
-        print("Lowest line-coverage packages:", file=sys.stderr)
-        for name, covered, valid, pkg_ratio in lowest_line_packages[: args.max_details]:
-            print(
-                f" - {name}: {covered}/{valid} lines covered ({pkg_ratio * 100:.2f}%)",
-                file=sys.stderr,
-            )
-        if len(lowest_line_packages) > args.max_details:
-            print(f" - ... {len(lowest_line_packages) - args.max_details} more packages", file=sys.stderr)
-
-        print("Lowest line-coverage classes:", file=sys.stderr)
-        for name, covered, valid, cls_ratio in lowest_line_classes[: args.max_details]:
-            print(
-                f" - {name}: {covered}/{valid} lines covered ({cls_ratio * 100:.2f}%)",
-                file=sys.stderr,
-            )
-        if len(lowest_line_classes) > args.max_details:
-            print(f" - ... {len(lowest_line_classes) - args.max_details} more classes", file=sys.stderr)
-
-    if branch_failed:
-        print("Lowest branch-coverage packages:", file=sys.stderr)
-        for name, covered, valid, pkg_ratio in lowest_branch_packages[: args.max_details]:
-            print(
-                f" - {name}: {covered}/{valid} branches covered ({pkg_ratio * 100:.2f}%)",
-                file=sys.stderr,
-            )
-        if len(lowest_branch_packages) > args.max_details:
-            print(f" - ... {len(lowest_branch_packages) - args.max_details} more packages", file=sys.stderr)
-
-        print("Lowest branch-coverage classes:", file=sys.stderr)
-        for name, covered, valid, cls_ratio in lowest_branch_classes[: args.max_details]:
-            print(
-                f" - {name}: {covered}/{valid} branches covered ({cls_ratio * 100:.2f}%)",
-                file=sys.stderr,
-            )
-        if len(lowest_branch_classes) > args.max_details:
-            print(f" - ... {len(lowest_branch_classes) - args.max_details} more classes", file=sys.stderr)
-
+    _print_coverage_failure(args, missing_packages, line_failed, branch_failed, lowest_details)
     return 1
 
 

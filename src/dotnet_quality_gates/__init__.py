@@ -1,4 +1,4 @@
-"""Quality and coverage gates for C#/.NET repositories."""
+"""Quality and coverage gates for C#, Python, Java, Kotlin, TypeScript, JavaScript, Go, and Rust."""
 
 from importlib.metadata import PackageNotFoundError, version
 
