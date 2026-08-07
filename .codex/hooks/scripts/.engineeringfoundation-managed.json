@@ -1,0 +1,7 @@
+{
+  "managedFiles": [
+    "inspect-command.ps1",
+    "session-context.ps1",
+    "validate-turn.ps1"
+  ]
+}
