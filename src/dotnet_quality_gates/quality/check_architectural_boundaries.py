@@ -6,6 +6,14 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from dotnet_quality_gates.architecture import (
+    DEFAULT_EXCLUDE_GLOBS,
+    DEFAULT_INCLUDE_ROOTS,
+    DEFAULT_LAYER_RULES,
+    ArchitectureConfig,
+    architecture_from_layer_rules,
+    load_architecture_config,
+)
 from dotnet_quality_gates.context import current_context
 from dotnet_quality_gates.quality.common import (  # noqa: E402
     is_repo_excluded,
@@ -20,19 +28,6 @@ from dotnet_quality_gates.unit_test_conventions import (  # noqa: E402
 )
 
 DEFAULT_POLICY_PATH = current_context().policy_path
-DEFAULT_INCLUDE_ROOTS = ["src"]
-DEFAULT_EXCLUDE_GLOBS = [
-    "**/*.Designer.cs",
-    "**/*.g.cs",
-    "**/*.g.i.cs",
-    "**/AssemblyInfo.cs",
-]
-DEFAULT_LAYER_RULES = {
-    "Domain": [],
-    "Application": ["Domain"],
-    "Infrastructure": ["Application", "Domain"],
-    "Presentation": ["Application", "Domain", "Infrastructure"],
-}
 
 USING_DIRECTIVE_PATTERN = re.compile(
     r"(?m)^\s*(?:global\s+)?using\s+"
@@ -44,7 +39,7 @@ MAX_PROJECT_XML_BYTES = 10 * 1024 * 1024
 UNSAFE_XML_DECLARATION_PATTERN = re.compile(r"<!\s*(?:DOCTYPE|ENTITY)\b", re.IGNORECASE)
 
 
-def load_architectural_boundaries_config(policy_path: Path) -> tuple[list[str], list[str], dict[str, list[str]]]:
+def load_architectural_boundaries_config(policy_path: Path) -> tuple[list[str], list[str], ArchitectureConfig]:
     section = policy_section(
         load_policy_object(policy_path, "architectural boundary"),
         "architectural_boundaries",
@@ -52,27 +47,42 @@ def load_architectural_boundaries_config(policy_path: Path) -> tuple[list[str], 
 
     include_roots = _sanitize_string_list(section.get("include_roots", DEFAULT_INCLUDE_ROOTS))
     exclude_globs = _sanitize_string_list(section.get("exclude_globs", DEFAULT_EXCLUDE_GLOBS))
-    layer_rules = _load_layer_rules(section.get("layer_rules", DEFAULT_LAYER_RULES))
+    architecture = load_architecture_config(policy_path)
 
     return (
         include_roots or list(DEFAULT_INCLUDE_ROOTS),
         exclude_globs or list(DEFAULT_EXCLUDE_GLOBS),
-        layer_rules or dict(DEFAULT_LAYER_RULES),
+        architecture,
     )
 
 
 def validate_architectural_boundaries(
     include_roots: list[Path],
     exclude_globs: list[str],
-    layer_rules: dict[str, list[str]],
+    layer_rules: dict[str, list[str]] | None = None,
+    *,
+    architecture: ArchitectureConfig | None = None,
 ) -> list[str]:
+    resolved_architecture = architecture or architecture_from_layer_rules(layer_rules or DEFAULT_LAYER_RULES)
     violations: list[str] = []
-    violations.extend(validate_project_references(include_roots, layer_rules))
-    violations.extend(validate_using_directives(include_roots, exclude_globs, layer_rules))
+    violations.extend(validate_project_references(include_roots, architecture=resolved_architecture))
+    violations.extend(
+        validate_using_directives(
+            include_roots,
+            exclude_globs,
+            architecture=resolved_architecture,
+        )
+    )
     return sorted(violations, key=str.lower)
 
 
-def validate_project_references(include_roots: list[Path], layer_rules: dict[str, list[str]]) -> list[str]:
+def validate_project_references(
+    include_roots: list[Path],
+    layer_rules: dict[str, list[str]] | None = None,
+    *,
+    architecture: ArchitectureConfig | None = None,
+) -> list[str]:
+    resolved_architecture = architecture or architecture_from_layer_rules(layer_rules or DEFAULT_LAYER_RULES)
     violations: list[str] = []
 
     for include_root in include_roots:
@@ -80,20 +90,20 @@ def validate_project_references(include_roots: list[Path], layer_rules: dict[str
             if any(part in {"bin", "obj"} for part in project_path.parts):
                 continue
 
-            source_layer = layer_for_path(project_path)
-            if source_layer is None:
+            source_unit = resolved_architecture.unit_for_path(project_path, REPO_ROOT)
+            if source_unit is None:
                 continue
 
-            allowed_layers = allowed_dependency_layers(source_layer, layer_rules)
+            allowed_units = resolved_architecture.allowed_dependency_names(source_unit)
             for reference_text, line_number in read_project_references(project_path):
                 reference_path = (project_path.parent / reference_text.replace("\\", "/")).resolve()
-                target_layer = layer_for_path(reference_path)
-                if target_layer is None or target_layer in allowed_layers:
+                target_unit = resolved_architecture.unit_for_path(reference_path, REPO_ROOT)
+                if target_unit is None or target_unit.name in allowed_units:
                     continue
 
                 violations.append(
                     f"{to_repo_path(project_path)}:{line_number}: "
-                    f"{source_layer} project must not reference {target_layer} project '{to_repo_path(reference_path)}'."
+                    f"{source_unit.name} project must not reference {target_unit.name} project '{to_repo_path(reference_path)}'."
                 )
 
     return violations
@@ -102,36 +112,39 @@ def validate_project_references(include_roots: list[Path], layer_rules: dict[str
 def validate_using_directives(
     include_roots: list[Path],
     exclude_globs: list[str],
-    layer_rules: dict[str, list[str]],
+    layer_rules: dict[str, list[str]] | None = None,
+    *,
+    architecture: ArchitectureConfig | None = None,
 ) -> list[str]:
+    resolved_architecture = architecture or architecture_from_layer_rules(layer_rules or DEFAULT_LAYER_RULES)
     violations: list[str] = []
-    known_layers = set(layer_rules)
+    known_units = resolved_architecture.unit_names
 
     for include_root in include_roots:
         for file_path in iter_cs_files(include_root):
             if is_repo_excluded(file_path, exclude_globs, REPO_ROOT):
                 continue
 
-            source_layer = layer_for_path(file_path)
-            if source_layer is None:
+            source_unit = resolved_architecture.unit_for_path(file_path, REPO_ROOT)
+            if source_unit is None:
                 continue
 
-            denied_layers = known_layers - allowed_dependency_layers(source_layer, layer_rules)
-            if not denied_layers:
+            denied_units = known_units - resolved_architecture.allowed_dependency_names(source_unit)
+            if not denied_units:
                 continue
 
             text = file_path.read_text(encoding="utf-8", errors="ignore")
             masked = mask_comments_and_strings(text)
             for match in USING_DIRECTIVE_PATTERN.finditer(masked):
                 namespace = match.group("namespace")
-                target_layer = first_namespace_segment(namespace)
-                if target_layer not in denied_layers:
+                target_unit = resolved_architecture.unit_for_namespace(namespace)
+                if target_unit is None or target_unit.name not in denied_units:
                     continue
 
                 line_number = text.count("\n", 0, match.start()) + 1
                 violations.append(
                     f"{to_repo_path(file_path)}:{line_number}: "
-                    f"{source_layer} code must not depend on {target_layer} namespace '{namespace}'."
+                    f"{source_unit.name} code must not depend on {target_unit.name} namespace '{namespace}'."
                 )
 
     return violations
@@ -175,19 +188,10 @@ def find_project_reference_line(text: str, include: str) -> int:
     return text.count("\n", 0, include_index) + 1
 
 
-def layer_for_path(path: Path) -> str | None:
-    try:
-        relative_parts = path.resolve().relative_to((REPO_ROOT / "src").resolve()).parts
-    except ValueError:
-        return None
-
-    if not relative_parts:
-        return None
-
-    first_segment = relative_parts[0]
-    if first_segment in DEFAULT_LAYER_RULES:
-        return first_segment
-    return None
+def layer_for_path(path: Path, architecture: ArchitectureConfig | None = None) -> str | None:
+    resolved_architecture = architecture or architecture_from_layer_rules(DEFAULT_LAYER_RULES)
+    unit = resolved_architecture.unit_for_path(path, REPO_ROOT)
+    return unit.name if unit is not None else None
 
 
 def allowed_dependency_layers(source_layer: str, layer_rules: dict[str, list[str]]) -> set[str]:
@@ -203,28 +207,6 @@ def to_repo_path(path: Path) -> str:
         return path.resolve().relative_to(REPO_ROOT).as_posix()
     except ValueError:
         return path.as_posix()
-
-
-def _load_layer_rules(raw_rules: object) -> dict[str, list[str]]:
-    if not isinstance(raw_rules, dict):
-        return dict(DEFAULT_LAYER_RULES)
-
-    rules: dict[str, list[str]] = {}
-    known_layers = set(DEFAULT_LAYER_RULES)
-    for layer, dependencies in raw_rules.items():
-        if layer not in known_layers:
-            continue
-        sanitized_dependencies = [
-            dependency
-            for dependency in _sanitize_string_list(dependencies)
-            if dependency in known_layers and dependency != layer
-        ]
-        rules[layer] = sanitized_dependencies
-
-    for layer, dependencies in DEFAULT_LAYER_RULES.items():
-        rules.setdefault(layer, list(dependencies))
-
-    return rules
 
 
 def _sanitize_string_list(values: object) -> list[str]:
@@ -255,7 +237,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    include_root_texts, exclude_globs, layer_rules = load_architectural_boundaries_config(Path(args.policy_path))
+    try:
+        include_root_texts, exclude_globs, architecture = load_architectural_boundaries_config(
+            Path(args.policy_path)
+        )
+    except ValueError as ex:
+        print(f"Architectural boundary check failed: {ex}", file=sys.stderr)
+        return 2
     include_roots: list[Path] = []
     for include_root_text in include_root_texts:
         include_root = (REPO_ROOT / include_root_text).resolve()
@@ -272,7 +260,7 @@ def main() -> int:
         violations = validate_architectural_boundaries(
             include_roots=include_roots,
             exclude_globs=exclude_globs,
-            layer_rules=layer_rules,
+            architecture=architecture,
         )
     except ValueError as ex:
         print(f"Architectural boundary check failed: {ex}", file=sys.stderr)
