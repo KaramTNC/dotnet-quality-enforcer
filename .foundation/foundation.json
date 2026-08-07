@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/KaramTNC/EngineeringFoundation/v0.5.0/schemas/foundation-adoption.schema.json",
+  "repository": "KaramTNC/EngineeringFoundation",
+  "version": "v0.5.0",
+  "template": "existing-python-package",
+  "adopted": [
+    "shared-engineering-guidance",
+    "portable-Codex-testing-and-review-skills",
+    "portable-Codex-safety-hook-patterns",
+    "selected-foundation-asset-synchronization"
+  ],
+  "localExtensions": [
+    "Python package and GitHub Action CI",
+    "optional .NET Roslyn helper build and release packaging",
+    "quality-enforcer implementation and consuming-repository contracts",
+    "local release-please, PyPI, and GitHub release automation"
+  ]
+}

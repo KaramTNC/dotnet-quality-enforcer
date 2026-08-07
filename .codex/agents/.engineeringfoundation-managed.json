@@ -1,0 +1,8 @@
+{
+  "managedFiles": [
+    "explorer.toml",
+    "reviewer.toml",
+    "test-auditor.toml",
+    "worker.toml"
+  ]
+}

@@ -1,0 +1,74 @@
+name: Update EngineeringFoundation
+
+on:
+  repository_dispatch:
+    types: [engineering-foundation-release]
+  workflow_dispatch:
+    inputs:
+      foundation_tag:
+        description: Foundation release tag to synchronize.
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-foundation:
+    name: Synchronize selected Foundation assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Resolve Foundation tag
+        id: foundation
+        env:
+          DISPATCH_TAG: ${{ github.event.client_payload.foundation_tag }}
+          INPUT_TAG: ${{ inputs.foundation_tag }}
+        run: echo "tag=${DISPATCH_TAG:-$INPUT_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Foundation tag
+        env:
+          FOUNDATION_TAG: ${{ steps.foundation.outputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$FOUNDATION_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+
+      - name: Check out consuming repository
+        uses: actions/checkout@v7
+        with:
+          path: consumer
+
+      - name: Check out Foundation release
+        uses: actions/checkout@v7
+        with:
+          repository: KaramTNC/EngineeringFoundation
+          ref: ${{ steps.foundation.outputs.tag }}
+          token: ${{ secrets.FOUNDATION_READ_TOKEN || github.token }}
+          path: foundation
+
+      - name: Synchronize selected Foundation assets
+        working-directory: consumer
+        env:
+          FOUNDATION_TAG: ${{ steps.foundation.outputs.tag }}
+        run: |
+          set -euo pipefail
+          python3 ../foundation/scripts/sync-foundation-assets.py \
+            --source-root ../foundation \
+            --target-root . \
+            --manifest .foundation/foundation-assets.json \
+            --tag "$FOUNDATION_TAG"
+
+      - name: Create or update Foundation pull request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ github.token }}
+          path: consumer
+          branch: automation/engineering-foundation-update
+          delete-branch: true
+          commit-message: "chore: update EngineeringFoundation to ${{ steps.foundation.outputs.tag }}"
+          title: "chore: update EngineeringFoundation to ${{ steps.foundation.outputs.tag }}"
+          body: |
+            This automated PR synchronizes the selected EngineeringFoundation assets to `${{ steps.foundation.outputs.tag }}`.
+
+            The Python package's local CI and consumer-specific quality policy remain unchanged.

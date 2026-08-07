@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schemaVersion": 1,
+  "managedAssets": [
+    {
+      "source": "codex/agents",
+      "target": ".codex/agents",
+      "mode": "directory",
+      "managedIndex": ".engineeringfoundation-managed.json"
+    },
+    {
+      "source": "codex/config.toml",
+      "target": ".codex/config.toml",
+      "mode": "file"
+    },
+    {
+      "source": "codex/hooks.json",
+      "target": ".codex/hooks.json",
+      "mode": "file"
+    },
+    {
+      "source": "codex/hooks/scripts",
+      "target": ".codex/hooks/scripts",
+      "mode": "directory",
+      "managedIndex": ".engineeringfoundation-managed.json"
+    },
+    {
+      "source": "codex/skills",
+      "target": ".agents/skills",
+      "mode": "directory",
+      "managedIndex": ".engineeringfoundation-managed.json"
+    },
+    {
+      "source": "codex/AGENTS.shared.md",
+      "target": "AGENTS.md",
+      "mode": "managed-section",
+      "startMarker": "<!-- BEGIN ENGINEERINGFOUNDATION MANAGED -->",
+      "endMarker": "<!-- END ENGINEERINGFOUNDATION MANAGED -->"
+    }
+  ]
+}
