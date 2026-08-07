@@ -46,7 +46,14 @@ jobs:
       - name: Install build tooling
         run: python -m pip install --upgrade pip build twine pip-audit
 
-      - name: Build wheel and source distribution
+      - name: Build main distribution
+        if: github.event_name == 'workflow_run'
+        env:
+          SETUPTOOLS_SCM_PRETEND_VERSION: ${{ format('0.0.0+main.{0}', github.event.workflow_run.head_sha) }}
+        run: python -m build
+
+      - name: Build versioned distribution
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: python -m build
 
       - name: Publish Roslyn helper release asset
