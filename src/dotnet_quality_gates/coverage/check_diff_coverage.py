@@ -25,6 +25,8 @@ EXECUTABLE_LINE_PATTERN = re.compile(
     r"^(?:await|break|case|catch|const|continue|do|else\s+if|for|foreach|if|lock|"
     r"return|switch|throw|try|using|var|while|yield)\b"
 )
+MAX_COVERAGE_XML_BYTES = 50 * 1024 * 1024
+UNSAFE_XML_DECLARATION_PATTERN = re.compile(rb"<!\s*(?:DOCTYPE|ENTITY)\b", re.IGNORECASE)
 
 
 def load_diff_coverage_config(policy_path: Path) -> tuple[float, float | None, int | None]:
@@ -58,8 +60,24 @@ def run_git_diff(base: str) -> str:
     return result.stdout
 
 
+def parse_safe_xml(path: Path) -> ET.Element:
+    with path.open("rb") as stream:
+        content = stream.read(MAX_COVERAGE_XML_BYTES + 1)
+
+    if len(content) > MAX_COVERAGE_XML_BYTES:
+        raise ValueError(
+            f"XML report exceeds the {MAX_COVERAGE_XML_BYTES} byte safety limit"
+        )
+    if UNSAFE_XML_DECLARATION_PATTERN.search(content):
+        raise ValueError("XML reports must not contain DTD or entity declarations")
+
+    # ElementTree does not fetch external resources, while the declaration check
+    # above prevents DTD-based entity expansion before parsing untrusted reports.
+    return ET.fromstring(content)
+
+
 def parse_coverage(path: Path) -> dict[str, dict[int, int]]:
-    root = ET.parse(path).getroot()
+    root = parse_safe_xml(path)
     coverage: dict[str, dict[int, int]] = defaultdict(dict)
     for class_node in root.findall(".//class"):
         filename = class_node.attrib.get("filename")
@@ -95,7 +113,7 @@ def parse_condition_coverage(line_node: ET.Element) -> tuple[int, int]:
 
 
 def parse_branch_coverage(path: Path) -> dict[str, dict[int, tuple[int, int]]]:
-    root = ET.parse(path).getroot()
+    root = parse_safe_xml(path)
     coverage: dict[str, dict[int, tuple[int, int]]] = defaultdict(dict)
     for class_node in root.findall(".//class"):
         filename = class_node.attrib.get("filename")

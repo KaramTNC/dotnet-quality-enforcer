@@ -47,6 +47,27 @@ class RoslynBridgeTests(unittest.TestCase):
             with self.assertRaises(roslyn.RoslynError):
                 roslyn.analyze_csharp_file(Path("Example.cs"))
 
+    def test_configured_command_preserves_quoted_windows_paths(self) -> None:
+        with (
+            patch.object(roslyn.os, "name", "nt"),
+            patch.dict(
+                os.environ,
+                {
+                    "DOTNET_QUALITY_ROSLYN_COMMAND": (
+                        r'"C:\Program Files\dotnet\dotnet.exe" '
+                        r'"C:\quality tools\DotnetQualityRoslyn.dll"'
+                    )
+                },
+                clear=True,
+            ),
+        ):
+            command = roslyn._configured_command()
+
+        self.assertEqual(
+            command,
+            [r"C:\Program Files\dotnet\dotnet.exe", r"C:\quality tools\DotnetQualityRoslyn.dll"],
+        )
+
     def test_multiple_files_use_the_batch_protocol(self) -> None:
         files = [Path("src/One.cs").resolve(), Path("src/Two.cs").resolve()]
         payload = {

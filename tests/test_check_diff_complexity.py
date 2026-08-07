@@ -41,6 +41,36 @@ class CheckDiffComplexityTests(unittest.TestCase):
 
         self.assertIsNone(config[3])
 
+    def test_crap_score_requires_coverage_data(self) -> None:
+        method = self.mod.MethodMetric(
+            path="src/Example.cs",
+            name="NoCoverage",
+            signature_key="NoCoverage/0",
+            start_line=1,
+            end_line=3,
+            complexity=10,
+        )
+
+        self.assertIsNone(method.coverage_ratio)
+        self.assertIsNone(method.crap_score)
+        violation = self.mod.crap_violation(method, "src/Example.cs:1: NoCoverage", 30.0)
+        self.assertIsNotNone(violation)
+        self.assertIn("no method coverage data", violation)
+
+    def test_crap_score_preserves_zero_coverable_line_behavior(self) -> None:
+        method = self.mod.MethodMetric(
+            path="src/Example.cs",
+            name="NoCoverableLines",
+            signature_key="NoCoverableLines/0",
+            start_line=1,
+            end_line=3,
+            complexity=10,
+            coverage_available=True,
+        )
+
+        self.assertEqual(method.coverage_ratio, 1.0)
+        self.assertEqual(method.crap_score, 10.0)
+
     def test_parse_methods_counts_cyclomatic_complexity(self) -> None:
         text = """
 namespace Sample;
@@ -370,6 +400,18 @@ public sealed class DiffComplexityScratch
             scratch_path.unlink(missing_ok=True)
 
         self.assertTrue(any("cognitive complexity 6" in violation for violation in violations))
+
+    def test_parse_coverage_methods_rejects_unsafe_xml_declarations(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            coverage_path = Path(td) / "coverage.xml"
+            coverage_path.write_text(
+                "<!DOCTYPE coverage [<!ENTITY secret 'blocked'>]>"
+                "<coverage>&secret;</coverage>",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "DTD or entity"):
+                self.mod.parse_coverage_methods(coverage_path)
 
 
 if __name__ == "__main__":

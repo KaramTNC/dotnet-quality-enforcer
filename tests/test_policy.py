@@ -39,6 +39,22 @@ class PolicyValidationTests(unittest.TestCase):
             with self.assertRaisesRegex(PolicyValidationError, "code_size.method_max_lines"):
                 validate_policy_file(path)
 
+    def test_rejects_unknown_nested_policy_key_with_full_path(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "quality_policy.json"
+            path.write_text('{"diff_quality": {"crap_score_mxa": 30}}', encoding="utf-8")
+
+            with self.assertRaisesRegex(PolicyValidationError, "diff_quality.crap_score_mxa.*unknown"):
+                validate_policy_file(path)
+
+    def test_rejects_unknown_top_level_policy_key(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "quality_policy.json"
+            path.write_text('{"diff_quailty": {}}', encoding="utf-8")
+
+            with self.assertRaisesRegex(PolicyValidationError, "diff_quailty.*unknown"):
+                validate_policy_file(path)
+
     def test_missing_policy_is_valid_and_uses_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             validate_policy_file(Path(td) / "missing.json")

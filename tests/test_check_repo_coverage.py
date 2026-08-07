@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from dotnet_quality_gates.coverage import check_repo_coverage
 
@@ -87,6 +88,38 @@ class CheckRepoCoverageTests(unittest.TestCase):
         self.assertEqual(overall_branch, (1, 2))
         self.assertIn("Main", package_stats)
         self.assertIn("Other", package_stats)
+
+    def test_main_fails_when_an_expected_package_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            coverage_path = root / "coverage.xml"
+            coverage_path.write_text(
+                "<coverage><packages><package name='Present'><classes>"
+                "<class name='A' filename='src/A.cs'><lines><line number='1' hits='1'/>"
+                "</lines></class></classes></package></packages></coverage>",
+                encoding="utf-8",
+            )
+            policy_path = root / "policy.json"
+            policy_path.write_text(
+                json.dumps({"repo_coverage": {"expected_packages": ["Present", "Missing"]}}),
+                encoding="utf-8",
+            )
+
+            with patch(
+                "sys.argv",
+                [
+                    "check_repo_coverage.py",
+                    "--coverage",
+                    str(coverage_path),
+                    "--policy-path",
+                    str(policy_path),
+                    "--line-threshold",
+                    "0",
+                ],
+            ):
+                result = self.mod.main()
+
+        self.assertEqual(result, 1)
 
 
 if __name__ == "__main__":

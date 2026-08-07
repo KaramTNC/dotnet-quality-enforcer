@@ -40,6 +40,7 @@ def _commands() -> dict[str, CommandSpec]:
 
 COMMAND_NAMES = tuple(_commands())
 JSON_SCHEMA_VERSION = 1
+ROSLYN_COMMANDS = frozenset({"source-type-layout", "test-conventions"})
 
 
 def _build_parser(commands: dict[str, CommandSpec]) -> argparse.ArgumentParser:
@@ -90,18 +91,17 @@ def _policy_path(repo_root: Path, explicit: str | None, arguments: list[str]) ->
     return (repo_root / path).resolve() if not path.is_absolute() else path.resolve()
 
 
-def _run_child(args: argparse.Namespace, parser: argparse.ArgumentParser, commands: dict[str, CommandSpec]) -> int:
-    repo_root = Path(args.repo_root).resolve()
-    if not repo_root.is_dir():
-        parser.error(f"Repository root does not exist: {repo_root}")
+def _validate_parser_command(args: argparse.Namespace) -> str | None:
+    if args.parser != "roslyn" or args.command in ROSLYN_COMMANDS:
+        return None
+    return "Parser mode 'roslyn' is currently supported only by: " + ", ".join(sorted(ROSLYN_COMMANDS)) + "."
 
-    policy_path = _policy_path(repo_root, args.policy_path, args.arguments)
-    try:
-        validate_policy_file(policy_path)
-    except PolicyValidationError as ex:
-        return _emit_failure(args.output, args.command, repo_root, policy_path, args.parser, args.language, str(ex), 2)
 
-    context = ExecutionContext(repo_root, policy_path, args.parser, args.language, max(1.0, args.timeout))
+def _build_child_invocation(
+    args: argparse.Namespace,
+    context: ExecutionContext,
+    policy_path: Path,
+) -> tuple[list[str], dict[str, str]]:
     child_arguments = list(args.arguments)
     if args.policy_path is not None and args.command != "coverage-report" and not any(
         argument == "--policy-path" or argument.startswith("--policy-path=") for argument in child_arguments
@@ -112,7 +112,18 @@ def _run_child(args: argparse.Namespace, parser: argparse.ArgumentParser, comman
         child_environment["DOTNET_QUALITY_ROSLYN_COMMAND"] = args.roslyn_command
     else:
         child_environment.pop("DOTNET_QUALITY_ROSLYN_COMMAND", None)
+    return child_arguments, child_environment
 
+
+def _invoke_child(
+    args: argparse.Namespace,
+    commands: dict[str, CommandSpec],
+    context: ExecutionContext,
+    child_arguments: list[str],
+    child_environment: dict[str, str],
+    repo_root: Path,
+    policy_path: Path,
+) -> tuple[subprocess.CompletedProcess[str], float] | int:
     started_at = time.perf_counter()
     try:
         completed = subprocess.run(
@@ -129,14 +140,55 @@ def _run_child(args: argparse.Namespace, parser: argparse.ArgumentParser, comman
     except subprocess.TimeoutExpired:
         message = f"Command '{args.command}' exceeded the {context.command_timeout_seconds:g}s timeout."
         return _emit_failure(args.output, args.command, repo_root, policy_path, args.parser, args.language, message, 124)
+    return completed, round((time.perf_counter() - started_at) * 1000, 3)
 
+
+def _write_child_result(
+    args: argparse.Namespace,
+    repo_root: Path,
+    policy_path: Path,
+    completed: subprocess.CompletedProcess[str],
+    duration_ms: float,
+) -> None:
     if args.output == "json":
-        print(json.dumps(_result_payload(args.command, repo_root, policy_path, args.parser, args.language, completed.returncode, round((time.perf_counter() - started_at) * 1000, 3), completed.stdout, completed.stderr), ensure_ascii=False))
+        payload = _result_payload(
+            args.command,
+            repo_root,
+            policy_path,
+            args.parser,
+            args.language,
+            completed.returncode,
+            duration_ms,
+            completed.stdout,
+            completed.stderr,
+        )
+        print(json.dumps(payload, ensure_ascii=False))
     else:
         if completed.stdout:
             sys.stdout.write(completed.stdout)
         if completed.stderr:
             sys.stderr.write(completed.stderr)
+
+
+def _run_child(args: argparse.Namespace, parser: argparse.ArgumentParser, commands: dict[str, CommandSpec]) -> int:
+    repo_root = Path(args.repo_root).resolve()
+    if not repo_root.is_dir():
+        parser.error(f"Repository root does not exist: {repo_root}")
+    policy_path = _policy_path(repo_root, args.policy_path, args.arguments)
+    parser_error = _validate_parser_command(args)
+    if parser_error is not None:
+        return _emit_failure(args.output, args.command, repo_root, policy_path, args.parser, args.language, parser_error, 2)
+    try:
+        validate_policy_file(policy_path)
+    except PolicyValidationError as ex:
+        return _emit_failure(args.output, args.command, repo_root, policy_path, args.parser, args.language, str(ex), 2)
+    context = ExecutionContext(repo_root, policy_path, args.parser, args.language, max(1.0, args.timeout))
+    child_arguments, child_environment = _build_child_invocation(args, context, policy_path)
+    result = _invoke_child(args, commands, context, child_arguments, child_environment, repo_root, policy_path)
+    if isinstance(result, int):
+        return result
+    completed, duration_ms = result
+    _write_child_result(args, repo_root, policy_path, completed, duration_ms)
     return completed.returncode
 
 

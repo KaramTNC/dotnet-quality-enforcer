@@ -4,11 +4,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from dotnet_quality_gates.context import current_context
 from dotnet_quality_gates.unit_test_conventions import (  # noqa: E402
-    DEFAULT_POLICY_PATH,
-    DEFAULT_SRC_ROOT,
-    DEFAULT_UNIT_TEST_ROOT,
-    REPO_ROOT,
     SourceClassInfo,
     build_include_to_test_root_map,
     combine_partial_source_classes,
@@ -41,40 +38,34 @@ from dotnet_quality_gates.unit_test_conventions import (
 
 
 def _parse_args() -> argparse.Namespace:
+    context = current_context()
+    repo_root = context.repo_root
     parser = argparse.ArgumentParser(
         description="Validate C# test conventions and source-to-test mapping."
     )
-    parser.add_argument("--src-root", default=str(DEFAULT_SRC_ROOT))
-    parser.add_argument("--unit-test-root", default=str(DEFAULT_UNIT_TEST_ROOT))
-    parser.add_argument(
-        "--max-violations",
-        type=int,
-        default=250,
-        help="Maximum number of violations to print before truncating output.",
-    )
-    parser.add_argument(
-        "--source-include-roots",
-        nargs="+",
-        default=None,
-        help="Source directories (repo-relative) to include in mapping.",
-    )
-    parser.add_argument(
-        "--policy-path",
-        default=str(DEFAULT_POLICY_PATH),
-        help="Path to code quality policy JSON.",
-    )
+    parser.add_argument("--src-root", default=str(repo_root / "src"))
+    parser.add_argument("--unit-test-root", default=str(repo_root / "tests"))
+    parser.add_argument("--max-violations", type=int, default=250)
+    parser.add_argument("--source-include-roots", nargs="+", default=None)
+    parser.add_argument("--policy-path", default=str(context.policy_path))
     parser.add_argument(
         "--baseline-path",
-        default=str(REPO_ROOT / ".quality" / "baselines" / "test_conventions_baseline.txt"),
-        help="Path to a baseline file with one known violation per line prefixed by '- '.",
+        default=str(repo_root / ".quality" / "baselines" / "test_conventions_baseline.txt"),
     )
     return parser.parse_args()
+
+
+def __getattr__(name: str) -> object:
+    """Preserve the old diagnostic module attribute without caching its path."""
+    if name == "REPO_ROOT":
+        return current_context().repo_root
+    raise AttributeError(name)
 
 
 def _resolve_include_roots(configured_paths: list[str]) -> list[Path]:
     include_roots: list[Path] = []
     for relative_path in configured_paths:
-        include_root = (REPO_ROOT / relative_path).resolve()
+        include_root = (current_context().repo_root / relative_path).resolve()
         if include_root.exists():
             include_roots.append(include_root)
         else:

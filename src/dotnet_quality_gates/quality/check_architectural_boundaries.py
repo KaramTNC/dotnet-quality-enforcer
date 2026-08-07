@@ -40,6 +40,8 @@ USING_DIRECTIVE_PATTERN = re.compile(
     r"(?:(?:[A-Za-z_]\w*)\s*=\s*)?"
     r"(?P<namespace>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*;"
 )
+MAX_PROJECT_XML_BYTES = 10 * 1024 * 1024
+UNSAFE_XML_DECLARATION_PATTERN = re.compile(r"<!\s*(?:DOCTYPE|ENTITY)\b", re.IGNORECASE)
 
 
 def load_architectural_boundaries_config(policy_path: Path) -> tuple[list[str], list[str], dict[str, list[str]]]:
@@ -140,7 +142,7 @@ def read_project_references(project_path: Path) -> list[tuple[str, int]]:
     references: list[tuple[str, int]] = []
 
     try:
-        root = ET.fromstring(text)
+        root = parse_safe_xml_text(text)
     except ET.ParseError:
         return references
 
@@ -153,6 +155,17 @@ def read_project_references(project_path: Path) -> list[tuple[str, int]]:
         references.append((include, find_project_reference_line(text, include)))
 
     return references
+
+
+def parse_safe_xml_text(text: str) -> ET.Element:
+    if len(text.encode("utf-8")) > MAX_PROJECT_XML_BYTES:
+        raise ValueError(f"Project XML exceeds the {MAX_PROJECT_XML_BYTES} byte safety limit")
+    if UNSAFE_XML_DECLARATION_PATTERN.search(text):
+        raise ValueError("Project XML must not contain DTD or entity declarations")
+
+    # ElementTree does not fetch external resources, while the declaration check
+    # above prevents DTD-based entity expansion before parsing untrusted project files.
+    return ET.fromstring(text)
 
 
 def find_project_reference_line(text: str, include: str) -> int:
@@ -220,7 +233,7 @@ def _sanitize_string_list(values: object) -> list[str]:
     return [value.strip() for value in values if isinstance(value, str) and value.strip()]
 
 
-def main() -> int:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Validate production architectural dependency boundaries."
     )
@@ -240,9 +253,10 @@ def main() -> int:
         default=250,
         help="Maximum number of violations to print before truncating output.",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    include_root_texts, exclude_globs, layer_rules = load_architectural_boundaries_config(Path(args.policy_path))
+
+def _resolve_include_roots(include_root_texts: list[str]) -> list[Path]:
     include_roots: list[Path] = []
     for include_root_text in include_root_texts:
         include_root = (REPO_ROOT / include_root_text).resolve()
@@ -250,33 +264,46 @@ def main() -> int:
             include_roots.append(include_root)
         else:
             print(f"Warning: include root not found and skipped: {include_root_text}", file=sys.stderr)
+    return include_roots
 
-    if not include_roots:
-        print("Architectural boundary check failed: no valid include roots found.", file=sys.stderr)
-        return 1
 
-    violations = validate_architectural_boundaries(
-        include_roots=include_roots,
-        exclude_globs=exclude_globs,
-        layer_rules=layer_rules,
-    )
-
+def _report_boundary_violations(args: argparse.Namespace, violations: list[str]) -> int:
     baseline_violations = load_prefixed_baseline_violations(Path(args.baseline_path))
     if baseline_violations:
         violations = [violation for violation in violations if violation not in baseline_violations]
-
     if violations:
         print("Architectural boundary check failed.", file=sys.stderr)
         displayed = violations[: args.max_violations]
         for violation in displayed:
             print(f" - {violation}", file=sys.stderr)
         if len(violations) > len(displayed):
-            remaining = len(violations) - len(displayed)
-            print(f" - ... {remaining} additional violations omitted", file=sys.stderr)
+            print(f" - ... {len(violations) - len(displayed)} additional violations omitted", file=sys.stderr)
         return 1
-
     print("Architectural boundary check passed.")
     return 0
+
+
+def main() -> int:
+    args = _parse_args()
+
+    include_root_texts, exclude_globs, layer_rules = load_architectural_boundaries_config(Path(args.policy_path))
+    include_roots = _resolve_include_roots(include_root_texts)
+
+    if not include_roots:
+        print("Architectural boundary check failed: no valid include roots found.", file=sys.stderr)
+        return 1
+
+    try:
+        violations = validate_architectural_boundaries(
+            include_roots=include_roots,
+            exclude_globs=exclude_globs,
+            layer_rules=layer_rules,
+        )
+    except ValueError as ex:
+        print(f"Architectural boundary check failed: {ex}", file=sys.stderr)
+        return 1
+
+    return _report_boundary_violations(args, violations)
 
 
 if __name__ == "__main__":

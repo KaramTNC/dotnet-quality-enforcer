@@ -13,7 +13,8 @@ python -m pip install -e ".[dev]"
 Run the same checks used by CI before opening a pull request:
 
 ```bash
-python -m unittest discover -s tests -p "test_*.py"
+python -m coverage run -m unittest discover -s tests -p "test_*.py"
+python -m coverage report
 ruff check src tests action_runner.py
 mypy src action_runner.py
 ```

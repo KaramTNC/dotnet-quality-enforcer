@@ -118,7 +118,7 @@ steps:
 
 The `v0` compatibility tag tracks the latest 0.x release. For production workflows, replace it with the release you have reviewed or an immutable commit SHA.
 
-The action installs the package, runs the selected gate, and exposes `result`, `status`, `returncode`, `violations`, `blocking-errors`, and `warnings`. It also writes a compact status block and a Markdown section to `GITHUB_STEP_SUMMARY`. Set `install-roslyn: true` to install the .NET 8 SDK and build the bundled Roslyn helper. `coverage-report` still requires [ReportGenerator](https://github.com/danielpalme/ReportGenerator) on the runner.
+The action installs the package, runs the selected gate, and exposes `result`, `status`, `returncode`, `violations`, `blocking-errors`, and `warnings` outputs. Each invocation also prints a compact status block and appends a Markdown section to `GITHUB_STEP_SUMMARY`. Set `install-roslyn: true` to install the .NET 8 SDK and build the bundled Roslyn helper before running a Roslyn-enabled gate. The `coverage-report` command still requires [ReportGenerator](https://github.com/danielpalme/ReportGenerator) on the runner.
 
 The action's `result` output uses the same `schema_version: 1` JSON envelope as the command-line interface:
 
@@ -212,7 +212,7 @@ For automation, request a structured result envelope:
 dotnet-quality --output json code-size --scope full
 ```
 
-The JSON envelope has `schema_version: 1`, status and return-code fields, normalized `blocking_errors`, warnings, repository metadata, and the original `stdout`/`stderr`. Use `blocking_errors` for build failures; `violations` remains available for detailed or legacy consumers.
+The JSON envelope has `schema_version: 1`, a `status`, `returncode`, `violations`, normalized `blocking_errors`, `warnings`, repository metadata, and the original `stdout`/`stderr` for compatibility. `blocking_errors` is the concise list to display when a gate blocks the build; `violations` remains available for consumers that need the legacy extracted detail list. Policy validation is strict: unknown sections and keys are rejected so a misspelled setting cannot silently fall back to a default.
 
 Most commands use `.quality/quality_policy.json` by default when it exists. The top-level command validates known policy keys before starting a gate and reports the exact invalid key. Baseline files contain known violations that are intentionally accepted by the consuming repository; keep those files in the consuming repository rather than in this package.
 
@@ -240,7 +240,8 @@ The badge at the top of this page tracks downloads of the wheel and source-distr
 Run the local checks with:
 
 ```bash
-python -m unittest discover -s tests -p "test_*.py"
+python -m coverage run -m unittest discover -s tests -p "test_*.py"
+python -m coverage report
 ruff check src tests action_runner.py
 mypy src action_runner.py
 pip-audit .
@@ -253,7 +254,9 @@ dotnet-quality --repo-root . --language auto --policy-path .quality/quality_poli
 dotnet-quality --repo-root . --language auto --policy-path .quality/quality_policy.json public-api-documentation
 ```
 
-These checks use [Ruff](https://docs.astral.sh/ruff/), [mypy](https://mypy.readthedocs.io/), [pip-audit](https://github.com/pypa/pip-audit/), and the enforcer itself. The repository policy is stored in [`.quality/quality_policy.json`](.quality/quality_policy.json), so CI and local runs share the same thresholds. Pull requests targeting `staging` or `main` run the test suite on Python 3.10 through 3.13, static analysis, the self-quality gates, and a Roslyn smoke test. Pushes to `main` build distributions and create a GitHub Release; `vX.Y.Z` tags create versioned releases and can publish to PyPI.
+These checks use [Ruff](https://docs.astral.sh/ruff/), [mypy](https://mypy.readthedocs.io/), [pip-audit](https://github.com/pypa/pip-audit/), and the enforcer itself. The test suite also includes cross-platform action argument, policy-validation, coverage, XML-input, and JSON-output contract checks. The repository policy is stored in [`.quality/quality_policy.json`](.quality/quality_policy.json), so CI and local runs share the same thresholds. Run the Roslyn build locally when changing the helper or parser integration.
+
+Pull requests targeting `staging` or `main` run the test suite on Python 3.10 through 3.13, static analysis, the self-quality gates, and a Roslyn helper smoke test. Successful pushes to `main` build distributions and create a GitHub Release named `main-<commit-sha>`. Version tags matching `vX.Y.Z` create versioned releases and publish the Python package when PyPI trusted publishing is configured. The release workflow requires GitHub Actions permission to write repository contents.
 
 The package version is derived from Git tags with [`setuptools-scm`](https://setuptools-scm.readthedocs.io/); source checkouts without package metadata use `0.0.0+unknown`.
 

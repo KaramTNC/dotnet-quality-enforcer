@@ -20,6 +20,7 @@ Changelog = "https://github.com/KaramTNC/dotnet-quality-enforcer/releases"
 
 [project.optional-dependencies]
 dev = [
+    "coverage>=7.6",
     "mypy>=1.13",
     "ruff>=0.8",
 ]
@@ -50,3 +51,11 @@ files = ["src"]
 check_untyped_defs = true
 ignore_missing_imports = true
 warn_unused_ignores = true
+
+[tool.coverage.run]
+branch = true
+source = ["src/dotnet_quality_gates"]
+
+[tool.coverage.report]
+fail_under = 60
+skip_empty = true
