@@ -13,5 +13,14 @@
     "cognitive_complexity_max": 10,
     "crap_score_max": 30,
     "line_coverage_threshold": 0.8
+  },
+  "architecture": {
+    "units": {
+      "Example": {
+        "source_roots": ["src/Example"],
+        "namespace_prefixes": ["Example"],
+        "allowed_dependencies": []
+      }
+    }
   }
 }
