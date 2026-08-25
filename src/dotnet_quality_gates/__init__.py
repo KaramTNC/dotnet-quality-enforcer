@@ -1,4 +1,4 @@
-"""Quality and coverage gates for C#/.NET repositories."""
+"""Quality and coverage gates for software repositories."""
 
 from importlib.metadata import PackageNotFoundError, version
 

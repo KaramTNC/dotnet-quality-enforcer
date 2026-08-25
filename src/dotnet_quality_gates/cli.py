@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from dotnet_quality_gates.context import PARSER_MODES, ExecutionContext
+from dotnet_quality_gates.context import PARSER_MODES, ExecutionContext, quality_environment_value
 from dotnet_quality_gates.policy import PolicyValidationError, validate_policy_file
 from dotnet_quality_gates.reporting import add_result_diagnostics
 
@@ -77,12 +77,12 @@ ROSLYN_COMMANDS = frozenset({"source-type-layout", "test-conventions"})
 
 
 def main() -> int:
-    environment_parser = os.environ.get("DOTNET_QUALITY_PARSER", "auto").strip().lower() or "auto"
+    environment_parser = (quality_environment_value(os.environ, "PARSER", "auto") or "auto").strip().lower() or "auto"
     if environment_parser not in PARSER_MODES:
         environment_parser = "auto"
     parser = argparse.ArgumentParser(
-        prog="dotnet-quality",
-        description="Run configurable quality and coverage gates for a C#/.NET repository.",
+        prog="code-quality",
+        description="Run configurable quality and coverage gates for a software repository.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     commands = _commands()
@@ -110,7 +110,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--roslyn-command",
-        default=os.environ.get("DOTNET_QUALITY_ROSLYN_COMMAND"),
+        default=quality_environment_value(os.environ, "ROSLYN_COMMAND"),
         help="Roslyn helper command used by --parser roslyn or auto.",
     )
     parser.add_argument(
@@ -167,8 +167,10 @@ def main() -> int:
     child_environment = context.child_environment()
     if args.roslyn_command:
         child_environment["DOTNET_QUALITY_ROSLYN_COMMAND"] = args.roslyn_command
+        child_environment["CODE_QUALITY_ROSLYN_COMMAND"] = args.roslyn_command
     else:
         child_environment.pop("DOTNET_QUALITY_ROSLYN_COMMAND", None)
+        child_environment.pop("CODE_QUALITY_ROSLYN_COMMAND", None)
     try:
         completed = subprocess.run(
             [sys.executable, "-m", spec.module, *child_arguments],

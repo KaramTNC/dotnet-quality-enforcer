@@ -11,6 +11,15 @@ DEFAULT_COMMAND_TIMEOUT_SECONDS = 300.0
 DEFAULT_POLICY_RELATIVE_PATH = ".quality/quality_policy.json"
 
 
+def quality_environment_value(
+    environment: Mapping[str, str],
+    name: str,
+    default: str | None = None,
+) -> str | None:
+    """Read a preferred CODE_QUALITY setting with a legacy fallback."""
+    return environment.get(f"CODE_QUALITY_{name}", environment.get(f"DOTNET_QUALITY_{name}", default))
+
+
 def _resolve_path(value: str | os.PathLike[str], base: Path) -> Path:
     path = Path(value).expanduser()
     return path if path.is_absolute() else base / path
@@ -59,17 +68,21 @@ class ExecutionContext:
         """
         environment = os.environ if environment is None else environment
         working_directory = (cwd or Path.cwd()).expanduser().resolve()
-        repo_root = _resolve_path(environment.get("DOTNET_QUALITY_REPO_ROOT", working_directory), working_directory).resolve()
+        repo_root = _resolve_path(
+            quality_environment_value(environment, "REPO_ROOT", str(working_directory)) or str(working_directory),
+            working_directory,
+        ).resolve()
         policy_path = _resolve_path(
-            environment.get("DOTNET_QUALITY_POLICY_PATH", DEFAULT_POLICY_RELATIVE_PATH),
+            quality_environment_value(environment, "POLICY_PATH", DEFAULT_POLICY_RELATIVE_PATH)
+            or DEFAULT_POLICY_RELATIVE_PATH,
             repo_root,
         ).resolve()
-        parser_mode = normalize_parser_mode(environment.get("DOTNET_QUALITY_PARSER", "auto"))
+        parser_mode = normalize_parser_mode(quality_environment_value(environment, "PARSER", "auto") or "auto")
         return cls(
             repo_root=repo_root,
             policy_path=policy_path,
             parser_mode=parser_mode,
-            command_timeout_seconds=_parse_timeout(environment.get("DOTNET_QUALITY_COMMAND_TIMEOUT")),
+            command_timeout_seconds=_parse_timeout(quality_environment_value(environment, "COMMAND_TIMEOUT")),
         )
 
     def child_environment(self, environment: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -78,6 +91,10 @@ class ExecutionContext:
         child["DOTNET_QUALITY_POLICY_PATH"] = str(self.policy_path)
         child["DOTNET_QUALITY_PARSER"] = self.parser_mode
         child["DOTNET_QUALITY_COMMAND_TIMEOUT"] = str(self.command_timeout_seconds)
+        child["CODE_QUALITY_REPO_ROOT"] = str(self.repo_root)
+        child["CODE_QUALITY_POLICY_PATH"] = str(self.policy_path)
+        child["CODE_QUALITY_PARSER"] = self.parser_mode
+        child["CODE_QUALITY_COMMAND_TIMEOUT"] = str(self.command_timeout_seconds)
         return child
 
     def resolve_path(self, value: str | os.PathLike[str]) -> Path:

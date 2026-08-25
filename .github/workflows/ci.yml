@@ -55,7 +55,7 @@ jobs:
         run: python -m compileall -q src
 
       - name: Verify command-line entry point
-        run: dotnet-quality --help
+        run: code-quality --help
 
   static-analysis:
     name: Ruff and mypy
@@ -107,7 +107,7 @@ jobs:
         run: dotnet build tools/roslyn-analyzer/DotnetQualityRoslyn.csproj --configuration Release --nologo
 
       - name: Verify Windows CLI and JSON contract
-        run: dotnet-quality --output json code-size --scope full
+        run: code-quality --output json code-size --scope full
 
   security:
     name: Dependency audit

@@ -13,8 +13,8 @@ their effective policy is for consuming .NET repositories and is incompatible
 with this package's own policy-validation contract.
 
 This is intentionally not a consumer of
-`reusable-dotnet.yml`: that Foundation workflow installs the released
-`dotnet-quality-enforcer` package, so using it here would create a circular CI
+`reusable-dotnet.yml`: that Foundation workflow installs the released Code
+Quality Enforcer package, so using it here would create a circular CI
 dependency. Foundation updates are limited to the selected shared assets
 through the dedicated update workflow.
 

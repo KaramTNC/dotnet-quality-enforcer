@@ -127,13 +127,13 @@ def set_output(name: str, value: str) -> None:
     output_path = os.environ.get("GITHUB_OUTPUT")
     if not output_path:
         return
-    delimiter = f"DOTNET_QUALITY_{uuid.uuid4().hex}"
+    delimiter = f"CODE_QUALITY_{uuid.uuid4().hex}"
     with open(output_path, "a", encoding="utf-8", newline="\n") as output:
         output.write(f"{name}<<{delimiter}\n{value}\n{delimiter}\n")
 
 
 def _print_raw_log(group_name: str, value: str, stream: TextIO) -> None:
-    token = f"DOTNET_QUALITY_{uuid.uuid4().hex}"
+    token = f"CODE_QUALITY_{uuid.uuid4().hex}"
     print(f"::group::{group_name}", file=stream)
     print(f"::stop-commands::{token}", file=stream)
     print(value, end="", file=stream)

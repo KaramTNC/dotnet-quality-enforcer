@@ -1,17 +1,17 @@
-# .NET Quality Enforcer
+# Code Quality Enforcer
 
-[![CI](https://github.com/KaramTNC/dotnet-quality-enforcer/actions/workflows/ci.yml/badge.svg)](https://github.com/KaramTNC/dotnet-quality-enforcer/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/KaramTNC/dotnet-quality-enforcer)](LICENSE)
-[![Latest release](https://img.shields.io/github/v/release/KaramTNC/dotnet-quality-enforcer?sort=semver)](https://github.com/KaramTNC/dotnet-quality-enforcer/releases/latest)
-[![GitHub release downloads](https://img.shields.io/github/downloads/KaramTNC/dotnet-quality-enforcer/total.svg?label=GitHub%20release%20downloads)](https://github.com/KaramTNC/dotnet-quality-enforcer/releases)
+[![CI](https://github.com/KaramTNC/code-quality-enforcer/actions/workflows/ci.yml/badge.svg)](https://github.com/KaramTNC/code-quality-enforcer/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/KaramTNC/code-quality-enforcer)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/KaramTNC/code-quality-enforcer?sort=semver)](https://github.com/KaramTNC/code-quality-enforcer/releases/latest)
+[![GitHub release downloads](https://img.shields.io/github/downloads/KaramTNC/code-quality-enforcer/total.svg?label=GitHub%20release%20downloads)](https://github.com/KaramTNC/code-quality-enforcer/releases)
 
-Installable, configuration-driven quality gates for C# and .NET repositories.
+Installable, configuration-driven quality gates for repositories, with C#/.NET analysis today and broader language support in mind.
 
 This project is pre-1.0. Feedback from teams using incremental quality enforcement is welcome.
 
 ## What it does
 
-`.NET Quality Enforcer` provides reusable checks for:
+`Code Quality Enforcer` provides reusable checks for:
 
 - architectural dependency boundaries
 - code size and complexity
@@ -125,7 +125,7 @@ This repository can be used directly as a cross-platform composite action. Pin c
 steps:
   - uses: actions/checkout@v7
   - id: quality
-    uses: KaramTNC/dotnet-quality-enforcer@v0
+    uses: KaramTNC/code-quality-enforcer@v0
     with:
       command: code-size
       arguments: --scope full
@@ -146,11 +146,11 @@ The action's `result` output uses the same `schema_version: 1` JSON envelope as 
 
 ## Installation
 
-The current public distributions are attached to [GitHub Releases](https://github.com/KaramTNC/dotnet-quality-enforcer/releases). Download the wheel that matches the release you want, or install from a source checkout:
+The current public distributions are attached to [GitHub Releases](https://github.com/KaramTNC/code-quality-enforcer/releases). The PyPI distribution remains `dotnet-quality-gates` for compatibility, while the preferred command is now `code-quality`. Download the wheel that matches the release you want, or install from a source checkout:
 
 ```bash
-git clone https://github.com/KaramTNC/dotnet-quality-enforcer.git
-cd dotnet-quality-enforcer
+git clone https://github.com/KaramTNC/code-quality-enforcer.git
+cd code-quality-enforcer
 python -m pip install .
 ```
 
@@ -175,17 +175,17 @@ For a copyable GitHub Actions workflow and starter policy, see [`examples/starte
 Run the top-level help to see every command and its options:
 
 ```bash
-dotnet-quality --help
+code-quality --help
 ```
 
 Commands can analyze the current directory or another repository with `--repo-root`:
 
 ```bash
-dotnet-quality --repo-root path/to/repository code-size \
+code-quality --repo-root path/to/repository code-size \
   --scope full \
   --policy-path .quality/quality_policy.json
 
-dotnet-quality public-api-documentation \
+code-quality public-api-documentation \
   --policy-path .quality/quality_policy.json \
   --baseline-path .quality/baselines/public_api_documentation_baseline.txt
 ```
@@ -209,7 +209,7 @@ Available commands:
 For automation, request a structured result envelope:
 
 ```bash
-dotnet-quality --output json code-size --scope full
+code-quality --output json code-size --scope full
 ```
 
 The JSON envelope has `schema_version: 1`, status and return-code fields, normalized `blocking_errors`, warnings, repository metadata, and the original `stdout`/`stderr`. Use `blocking_errors` for build failures; `violations` remains available for detailed or legacy consumers. Policy validation is strict: unknown sections and keys are rejected so a misspelled setting cannot silently fall back to a default.
@@ -224,16 +224,22 @@ The built-in parser has no .NET runtime dependency. For modern C# syntax, build 
 
 ```bash
 dotnet build tools/roslyn-analyzer/DotnetQualityRoslyn.csproj -c Release
-export DOTNET_QUALITY_ROSLYN_COMMAND="dotnet tools/roslyn-analyzer/bin/Release/net8.0/DotnetQualityRoslyn.dll"
+export CODE_QUALITY_ROSLYN_COMMAND="dotnet tools/roslyn-analyzer/bin/Release/net8.0/DotnetQualityRoslyn.dll"
 ```
 
 When configured, source-type and unit-test convention analysis uses Roslyn. In `auto` mode, an unavailable helper can use the built-in parser; use `roslyn` when a gate must fail rather than degrade to the fallback parser. The fallback parser is dependency-free but should be treated as a compatibility mode for modern C# syntax.
+
+### Compatibility names
+
+Existing automation may continue using the `dotnet-quality` command and
+`DOTNET_QUALITY_*` environment variables. They remain supported as aliases;
+new integrations should use `code-quality` and `CODE_QUALITY_*`.
 
 Versioned releases also include a framework-dependent Roslyn helper archive. It requires the .NET 8 runtime but avoids rebuilding the helper locally.
 
 ## Download tracking
 
-The badge at the top of this page tracks downloads of the wheel and source-distribution assets attached to this repository's GitHub Releases. It does not include Git clones, source-archive downloads, or installations from other channels. See the [release download statistics](https://github.com/KaramTNC/dotnet-quality-enforcer/releases) for the individual assets and releases.
+The badge at the top of this page tracks downloads of the wheel and source-distribution assets attached to this repository's GitHub Releases. It does not include Git clones, source-archive downloads, or installations from other channels. See the [release download statistics](https://github.com/KaramTNC/code-quality-enforcer/releases) for the individual assets and releases.
 
 ## Development and CI
 
@@ -253,7 +259,7 @@ The package version is derived from Git tags with [`setuptools-scm`](https://set
 
 ## Contributing
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Issues and feature requests can be submitted through the [GitHub issue tracker](https://github.com/KaramTNC/dotnet-quality-enforcer/issues), and usage questions can be asked in [Discussions](https://github.com/KaramTNC/dotnet-quality-enforcer/discussions).
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Issues and feature requests can be submitted through the [GitHub issue tracker](https://github.com/KaramTNC/code-quality-enforcer/issues), and usage questions can be asked in [Discussions](https://github.com/KaramTNC/code-quality-enforcer/discussions).
 
 Security issues should follow the process in [SECURITY.md](SECURITY.md).
 
