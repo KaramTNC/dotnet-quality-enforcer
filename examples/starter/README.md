@@ -1,6 +1,6 @@
 # Starter example
 
-This directory is a small, copyable example of adding .NET Quality Enforcer to a C# repository.
+This directory is a small, copyable example of adding Code Quality Enforcer to a repository.
 
 Copy `.quality/quality_policy.json` and `.github/workflows/dotnet-quality.yml` into a repository, then adjust the policy roots and thresholds to match its layout. The sample workflow runs the full code-size gate on pull requests and pushes to `main`.
 

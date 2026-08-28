@@ -47,6 +47,20 @@ class RoslynBridgeTests(unittest.TestCase):
             with self.assertRaises(roslyn.RoslynError):
                 roslyn.analyze_csharp_file(Path("Example.cs"))
 
+    def test_code_quality_environment_names_configure_the_bridge(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"CODE_QUALITY_PARSER": "roslyn", "CODE_QUALITY_ROSLYN_COMMAND": "roslyn"},
+            clear=True,
+        ):
+            with patch.object(roslyn.subprocess, "run") as run:
+                run.return_value = subprocess.CompletedProcess(
+                    args=["roslyn"], returncode=0, stdout=json.dumps({"types": [], "diagnostics": []}), stderr=""
+                )
+                roslyn.analyze_csharp_file(Path("Example.cs"))
+
+        self.assertEqual(run.call_args.args[0], ["roslyn", "--file", str(Path("Example.cs").resolve())])
+
     def test_configured_command_preserves_quoted_windows_paths(self) -> None:
         with (
             patch.object(roslyn.os, "name", "nt"),

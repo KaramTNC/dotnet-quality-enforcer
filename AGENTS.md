@@ -23,10 +23,10 @@
 - Review the final diff, skipped checks, and remaining risks before completion.
 <!-- END ENGINEERINGFOUNDATION MANAGED -->
 
-# .NET Quality Enforcer repository guide
+# Code Quality Enforcer repository guide
 
 This repository is a Python package and GitHub Action that analyzes consuming
-C#/.NET repositories. Keep the analysis engine under `src`, its Python tests
+different languages and repository types. Keep the analysis engine under `src`, its Python tests
 under `tests`, and the optional Roslyn helper under `tools/roslyn-analyzer`.
 
 ## Validation

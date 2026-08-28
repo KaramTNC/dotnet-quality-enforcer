@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dotnet-quality-gates"
 dynamic = ["version"]
-description = "Configurable static quality and coverage gates for C#/.NET repositories."
+description = "Configurable static quality and coverage gates for repositories, with C#/.NET analysis today."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -13,10 +13,10 @@ authors = [{ name = "KaramTNC" }]
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/KaramTNC/dotnet-quality-enforcer"
-Repository = "https://github.com/KaramTNC/dotnet-quality-enforcer"
-Issues = "https://github.com/KaramTNC/dotnet-quality-enforcer/issues"
-Changelog = "https://github.com/KaramTNC/dotnet-quality-enforcer/releases"
+Homepage = "https://github.com/KaramTNC/code-quality-enforcer"
+Repository = "https://github.com/KaramTNC/code-quality-enforcer"
+Issues = "https://github.com/KaramTNC/code-quality-enforcer/issues"
+Changelog = "https://github.com/KaramTNC/code-quality-enforcer/releases"
 
 [project.optional-dependencies]
 dev = [
@@ -29,6 +29,7 @@ security = [
 ]
 
 [project.scripts]
+code-quality = "dotnet_quality_gates.cli:main"
 dotnet-quality = "dotnet_quality_gates.cli:main"
 
 [tool.setuptools.packages.find]

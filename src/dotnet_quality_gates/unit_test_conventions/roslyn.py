@@ -8,7 +8,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from dotnet_quality_gates.context import PARSER_MODES, current_context
+from dotnet_quality_gates.context import PARSER_MODES, current_context, quality_environment_value
 
 from .models import SourceClassInfo, TestClassInfo, TestMethodInfo
 
@@ -33,7 +33,7 @@ class RoslynFileAnalysis:
 
 
 def _configured_command() -> list[str] | None:
-    configured = os.environ.get("DOTNET_QUALITY_ROSLYN_COMMAND", "").strip()
+    configured = (quality_environment_value(os.environ, "ROSLYN_COMMAND", "") or "").strip()
     if not configured:
         return None
     return _split_windows_command_line(configured) if os.name == "nt" else shlex.split(configured)
@@ -115,7 +115,7 @@ def _split_windows_command_line(value: str) -> list[str]:
 
 
 def parser_mode(value: str | None = None) -> str:
-    selected = (value or os.environ.get("DOTNET_QUALITY_PARSER", "auto")).strip().lower()
+    selected = (value or quality_environment_value(os.environ, "PARSER", "auto") or "auto").strip().lower()
     if selected not in PARSER_MODES:
         raise ValueError(f"Unsupported parser mode '{selected}'. Choose: {', '.join(PARSER_MODES)}")
     return selected
@@ -141,7 +141,7 @@ def analyze_csharp_files(paths: list[Path], mode: str | None = None) -> dict[Pat
     if not command:
         if selected_mode == "roslyn":
             raise RoslynError(
-                "Roslyn parser was requested but DOTNET_QUALITY_ROSLYN_COMMAND is not configured"
+                "Roslyn parser was requested but CODE_QUALITY_ROSLYN_COMMAND is not configured"
             )
         return {}
 

@@ -6,7 +6,7 @@ Only the latest versioned release receives security fixes. The project is curren
 
 ## Reporting a vulnerability
 
-Please report suspected vulnerabilities privately through [GitHub Security Advisories](https://github.com/KaramTNC/dotnet-quality-enforcer/security/advisories/new). Do not open a public issue for an undisclosed vulnerability.
+Please report suspected vulnerabilities privately through [GitHub Security Advisories](https://github.com/KaramTNC/code-quality-enforcer/security/advisories/new). Do not open a public issue for an undisclosed vulnerability.
 
 If private reporting is unavailable in your GitHub session, contact the maintainer through [KaramTNC's GitHub profile](https://github.com/KaramTNC) and do not include exploit details in a public issue.
 

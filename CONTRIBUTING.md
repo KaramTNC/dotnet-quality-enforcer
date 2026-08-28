@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve .NET Quality Enforcer. Issues, documentation improvements, bug fixes, tests, and new quality rules are welcome.
+Thanks for helping improve Code Quality Enforcer. Issues, documentation improvements, bug fixes, tests, and new quality rules are welcome.
 
 ## Development setup
 

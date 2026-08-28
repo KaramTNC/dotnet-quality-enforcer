@@ -45,6 +45,31 @@ class ExecutionContextTests(unittest.TestCase):
         self.assertEqual(context.parser_mode, "auto")
         self.assertEqual(context.command_timeout_seconds, DEFAULT_COMMAND_TIMEOUT_SECONDS)
 
+    def test_code_quality_environment_names_take_precedence_over_legacy_names(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            context = ExecutionContext.from_environment(
+                {
+                    "CODE_QUALITY_REPO_ROOT": "new-repository",
+                    "DOTNET_QUALITY_REPO_ROOT": "old-repository",
+                    "CODE_QUALITY_PARSER": "python",
+                    "DOTNET_QUALITY_PARSER": "roslyn",
+                },
+                cwd=cwd,
+            )
+
+        self.assertEqual(context.repo_root, (cwd / "new-repository").resolve())
+        self.assertEqual(context.parser_mode, "python")
+
+    def test_code_quality_environment_names_are_written_alongside_legacy_names(self) -> None:
+        context = ExecutionContext(Path("C:/repo"), Path("C:/repo/policy.json"), "roslyn", 4.0)
+
+        child = context.child_environment({})
+
+        self.assertEqual(child["CODE_QUALITY_REPO_ROOT"], str(context.repo_root))
+        self.assertEqual(child["CODE_QUALITY_PARSER"], "roslyn")
+        self.assertEqual(child["DOTNET_QUALITY_REPO_ROOT"], str(context.repo_root))
+
     def test_child_environment_does_not_mutate_or_require_process_environment(self) -> None:
         context = ExecutionContext(Path("C:/repo"), Path("C:/repo/policy.json"), "roslyn", 4.0)
         environment = {"EXAMPLE": "value"}
