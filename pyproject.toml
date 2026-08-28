@@ -21,7 +21,7 @@ Changelog = "https://github.com/KaramTNC/code-quality-enforcer/releases"
 [project.optional-dependencies]
 dev = [
     "coverage>=7.6",
-    "mypy>=1.13",
+    "mypy>=2.3.1",
     "ruff>=0.8",
 ]
 security = [
