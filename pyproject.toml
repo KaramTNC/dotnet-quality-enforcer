@@ -22,7 +22,7 @@ Changelog = "https://github.com/KaramTNC/code-quality-enforcer/releases"
 dev = [
     "coverage>=7.6",
     "mypy>=1.13",
-    "ruff>=0.8",
+    "ruff>=0.16.5",
 ]
 security = [
     "pip-audit>=2.7",
