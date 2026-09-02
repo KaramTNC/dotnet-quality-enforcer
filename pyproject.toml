@@ -25,7 +25,7 @@ dev = [
     "ruff>=0.8",
 ]
 security = [
-    "pip-audit>=2.7",
+    "pip-audit>=2.10.1",
 ]
 
 [project.scripts]
